@@ -1,0 +1,12 @@
+{
+  "name": "rmahwj-mods",
+  "owner": { "name": "Richard" },
+  "description": "Richard's Claude Code mods, one folder per mod.",
+  "plugins": [
+    { "name": "assumptions", "source": "./assumptions" },
+    { "name": "prompt-enhancer", "source": "./prompt-enhancer" },
+    { "name": "prompt-style", "source": "./prompt-style" },
+    { "name": "session-board", "source": "./session-board" },
+    { "name": "usage-gauge", "source": "./usage-gauge" }
+  ]
+}

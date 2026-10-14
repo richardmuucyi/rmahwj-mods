@@ -1,0 +1,427 @@
+import { atom, read, update } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
+
+import type { Assumption } from '../types'
+
+const PANE = 'assumptions'
+const TOOL = 'mcp__assumptions__log_assumption'
+
+const list = atom({ plugin: 'assumptions', key: 'list' } as const, [])
+const editing = atom({ plugin: 'assumptions', key: 'editing' } as const, null)
+const isWorking = atom({ plugin: 'assumptions', key: 'isWorking' } as const, false)
+const nextId = atom({ plugin: 'assumptions', key: 'nextId' } as const, 1)
+const showReviewed = atom({ plugin: 'assumptions', key: 'showReviewed' } as const, false)
+
+// After the last open assumption is reviewed, the panel closes after this pause.
+const CLOSE_DELAY_MS = 2_000
+
+const GUIDANCE = `## Logging assumptions
+While you work, whenever you make a non-trivial assumption the user has not confirmed (about requirements, scope, file or folder locations, formats, naming, defaults, data, or which option they want), call the tool \`${TOOL}\` at once with that assumption in one short sentence, and a few words on why. Then keep working; do not stop to ask. The user reviews the assumptions as they come.
+- Set impact to "high" when a wrong guess would be costly to undo (deleting or overwriting data, architecture, money, anything sent to other people); otherwise leave it out.
+- Log one assumption per call, when you make it, not in a batch at the end.
+- Skip trivial or obvious choices, and anything the user already stated.
+- If a message arrives that says "Correction to assumption A<n>", follow it: revise the work that depended on that assumption, and say briefly what you changed.`
+
+function short(text: string, n = 60): string {
+  const one = text.replace(/\s+/g, ' ').trim()
+  return one.length > n ? `${one.slice(0, n - 1)}…` : one
+}
+
+function ago(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000))
+  if (s < 60) return `${s}s ago`
+  const m = Math.round(s / 60)
+  return m < 60 ? `${m}m ago` : `${Math.round(m / 60)}h ago`
+}
+
+/** True when a drawing shows nothing (an empty box or blank text): such a tree only adds a blank row. */
+function isBlank(n: unknown): boolean {
+  if (n === null || n === undefined || n === false || n === true) return true
+  if (typeof n === 'string') return n.trim() === ''
+  if (typeof n === 'number') return false
+  if (Array.isArray(n)) return n.every(isBlank)
+  const el = n as { type?: unknown; children?: unknown[] }
+  if (el.type === 'Box' || el.type === 'Text') return (el.children ?? []).every(isBlank)
+  return false
+}
+
+/** Review order: high impact first, skipped ones last, then oldest first. */
+function queue(items: Assumption[]): Assumption[] {
+  return items
+    .filter(a => a.status === 'open')
+    .sort(
+      (x, y) =>
+        Number(y.impact === 'high') - Number(x.impact === 'high') ||
+        (x.skippedAt ?? 0) - (y.skippedAt ?? 0) ||
+        x.id - y.id,
+    )
+}
+
+/** Mark one assumption reviewed; close the panel shortly after the last one. */
+async function mark($: EngineInterface, id: number, status: Assumption['status'], correction?: string): Promise<void> {
+  await update($, list, all => all.map(a => (a.id === id ? { ...a, status, correction } : a)))
+  await closeIfDone($)
+}
+
+/** Close the panel once nothing is left open: a short pause first so the last ✓ or ✗ is seen. */
+async function closeIfDone($: EngineInterface): Promise<void> {
+  if (queue(await read($, list)).length > 0) return
+  $.clock.after(CLOSE_DELAY_MS, () => {
+    void (async () => {
+      const still = queue(await read($, list)).length
+      if (still === 0 && (await read($, editing)) === null) await $.ui.close({ id: PANE })
+    })()
+  })
+}
+
+/** Send a correction to Claude: into the running turn if one runs, else as a new prompt. */
+async function sendCorrection($: EngineInterface, a: Assumption, value: string): Promise<void> {
+  const fix = value.trim()
+  if (fix === '') return
+  await update($, editing, () => null)
+  await mark($, a.id, 'wrong', fix)
+  const text = `Correction to assumption A${a.id} ("${a.text}"): ${fix}\nPlease adjust the work that depended on it.`
+  if (await read($, isWorking)) {
+    // Mid-turn: Claude reads it at its next step.
+    await $.session.append({ message: { type: 'user', content: [{ type: 'text', text }] } })
+    $.ui.toast(`Correction to A${a.id} sent to Claude`)
+  } else {
+    await $.prompt.submit({ text, asUser: true })
+  }
+}
+
+/** Start a correction: a field where the surface has one, else the prompt box pre-filled. */
+async function startFix($: EngineInterface, a: Assumption, hasInput: boolean): Promise<void> {
+  if (hasInput) {
+    await update($, editing, () => a.id)
+    return
+  }
+  await mark($, a.id, 'wrong')
+  await $.prompt.fill({ text: `Correction to assumption A${a.id} ("${a.text}"): `, mode: 'replace' })
+}
+
+export const register: Register = on => {
+  on('session.start', async ($, e, next) => {
+    await $.tool.register({
+      name: 'log_assumption',
+      description:
+        'Record one assumption you are making while working, so the user can confirm or correct it. Call it the moment you make a non-trivial assumption the user has not confirmed, then carry on.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          assumption: { type: 'string', description: 'The assumption, in one short sentence.' },
+          why: { type: 'string', description: 'Optional: a few words on why you assumed it.' },
+          impact: {
+            type: 'string',
+            enum: ['high', 'low'],
+            description: '"high" when a wrong guess would be costly to undo; omit otherwise.',
+          },
+        },
+        required: ['assumption'],
+      },
+      isDeferred: false,
+    })
+    await $.command.register({
+      name: 'assumptions',
+      description: 'Show the assumptions Claude made in this session',
+    })
+    // How many are still open, for session-board's recap chip: a mod cannot
+    // read another mod's state, so it goes in a small file beside the board's
+    // cards. Written only when the count changes; nothing reaches the model.
+    const home = ((await $.env.get('USERPROFILE').catch(() => undefined)) || (await $.env.get('HOME').catch(() => undefined)) || '').replace(/[\\/]$/, '')
+    if (home !== '') {
+      let last = ''
+      $.clock.every(2_000, () => {
+        void (async () => {
+          const all = await read($, list)
+          const open = all.filter(a => a.status === 'open')
+          const text = JSON.stringify({ open: open.length, high: open.filter(a => a.impact === 'high').length })
+          // The id changes on /clear: the count follows the session it belongs to.
+          const path = `${home}/.claude/session-board/${await $.session.id()}.assume`
+          if (`${path}|${text}` === last) return
+          last = `${path}|${text}`
+          await $.fs.write(path, text)
+        })().catch(() => undefined)
+      })
+    }
+    return next(e)
+  })
+
+  // Tell the model to log its assumptions.
+  on('prompt.compose', async ($, e, next) => {
+    const composed = await next(e)
+    return {
+      sections: [...composed.sections, { id: 'assumptions:guidance', text: GUIDANCE, scope: 'session' as const }],
+    }
+  })
+
+  // The tool itself: store the assumption and answer at once.
+  on('tool.call', { tool: TOOL }, async ($, e) => {
+    // Arguments sit beside `tool` on the event (older callers nest them under `input`).
+    const raw = e as unknown as Record<string, unknown>
+    const input = (
+      typeof raw.assumption === 'string' ? raw : ((raw.input as Record<string, unknown> | undefined) ?? {})
+    ) as { assumption?: unknown; why?: unknown; impact?: unknown }
+    const text = typeof input.assumption === 'string' ? input.assumption.trim() : ''
+    if (text === '') return { deny: 'assumption is required' }
+    const why = typeof input.why === 'string' && input.why.trim() !== '' ? input.why.trim() : undefined
+    const impact = input.impact === 'high' ? ('high' as const) : ('low' as const)
+
+    let id = 0
+    await update($, nextId, n => {
+      id = n
+      return n + 1
+    })
+    const one: Assumption = { id, text, why, impact, status: 'open', at: await $.clock.now() }
+    await update($, list, items => [...items, one])
+    return { result: `Logged as A${id}. Carry on; the user will send a correction if it is wrong.` }
+  })
+
+  on('turn.start', async ($, e, next) => {
+    await update($, isWorking, () => true)
+    return next(e)
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    await update($, isWorking, () => false)
+    return next(e)
+  })
+
+  on('command.run', { command: 'assumptions' }, async $ => {
+    const opened = await $.ui.open({ id: PANE, title: 'Assumptions', closeOnEscape: true })
+    const items = await read($, list)
+    if (items.length === 0) return { text: 'No assumptions logged yet in this session.' }
+    return {
+      text: opened.isPlaced ? `Assumptions panel opened (${items.length} logged).` : 'Widen the window to see the assumptions panel.',
+    }
+  })
+
+  // The card above the prompt: one assumption at a time, answered in place.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const items = await read($, list)
+    const open = queue(items)
+    if (open.length === 0 || e.props.hasSurvey) return next(e)
+    const els = $.ui.resolve(e)
+    const { Box, Button, Text } = els
+    const Input = 'Input' in els ? els.Input : undefined
+    const cur = open[0]!
+    const hot = cur.impact === 'high'
+    const edit = await read($, editing)
+    const t = await $.clock.now()
+    const isFixing = edit === cur.id && Input !== undefined
+    const accent = hot ? 'yellow' : 'gray'
+
+    const header = (
+      <Box key="as-card-head">
+        <Text bold color="black" backgroundColor={accent}>
+          {` ${hot ? '⚠ ' : ''}${isFixing ? 'FIXING' : 'ASSUMPTION'} 1/${open.length} `}
+        </Text>
+        <Text dimColor>
+          {'  '}
+          {hot ? 'high impact · ' : ''}
+          {cur.at !== undefined ? ago(t - cur.at) : `A${cur.id}`}
+        </Text>
+      </Box>
+    )
+
+    const body = isFixing ? (
+      <Box key="as-card-fixing" flexDirection="column">
+        <Text dimColor>{cur.text}</Text>
+        <Input
+          key="as-card-fix-input"
+          label="It should be: "
+          placeholder="tell Claude what's right"
+          submitLabel="send"
+          autoFocus
+          onSubmit={(value: string) => sendCorrection($, cur, value)}
+        />
+        <Box>
+          <Button key="as-card-cancel" label="Cancel" onPress={() => update($, editing, () => null)} />
+        </Box>
+      </Box>
+    ) : (
+      <Box key="as-card-body" flexDirection="column">
+        <Text bold>{cur.text}</Text>
+        {cur.why !== undefined && (
+          <Text dimColor italic>
+            why: {cur.why}
+          </Text>
+        )}
+        <Box marginTop={1}>
+          <Button key="as-card-right" label="✓ Right" hotkey="y" variant="primary" onPress={() => mark($, cur.id, 'right')} />
+          <Text>  </Text>
+          <Button key="as-card-fix" label="✗ Fix" hotkey="n" onPress={() => startFix($, cur, Input !== undefined)} />
+          <Text>  </Text>
+          <Button
+            key="as-card-skip"
+            label="Skip"
+            hotkey="s"
+            onPress={async () => {
+              const now = await $.clock.now()
+              await update($, list, all => all.map(a => (a.id === cur.id ? { ...a, skippedAt: now } : a)))
+            }}
+          />
+          <Text>    </Text>
+          <Button
+            key="as-open"
+            plain
+            onPress={() => $.ui.open({ id: PANE, title: 'Assumptions', closeOnEscape: true })}
+          >
+            <Text color="blue">all {open.length} ›</Text>
+          </Button>
+        </Box>
+      </Box>
+    )
+
+    const mine = (
+      <Box key="as-card" flexDirection="column" borderStyle="round" borderColor={accent} paddingX={1}>
+        {header}
+        {body}
+      </Box>
+    )
+    // Keep whatever else is drawn above the prompt (other mods' strips) beneath this one.
+    const beneath = await next(e)
+    return (
+      <Box flexDirection="column">
+        {mine}
+        {!isBlank(beneath) && beneath}
+      </Box>
+    )
+  })
+
+  // The panel: a timeline of every assumption, to review in bulk or look back.
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    const els = $.ui.resolve(e)
+    const { Box, Button, Text } = els
+    // Mobile draws no text field: there, Fix pre-fills the prompt instead.
+    const Input = 'Input' in els ? els.Input : undefined
+    const items = await read($, list)
+    const edit = await read($, editing)
+
+    if (items.length === 0) {
+      return (
+        <Box flexDirection="column">
+          <Text dimColor>No assumptions logged yet.</Text>
+          <Text dimColor>Claude adds one here each time it assumes something while working.</Text>
+        </Box>
+      )
+    }
+
+    const open = queue(items)
+    const reviewed = items.filter(a => a.status !== 'open').reverse()
+    const showAll = await read($, showReviewed)
+
+    const openRow = (a: Assumption) => {
+      const hot = a.impact === 'high'
+      return (
+        <Box key={`as-row-${a.id}`} flexDirection="column" marginTop={1}>
+          <Text>
+            <Text color={hot ? 'yellow' : undefined}>● </Text>
+            <Text bold>
+              A{a.id}  {a.text}
+            </Text>
+            {hot && <Text color="yellow">   ⚠ high</Text>}
+          </Text>
+          {a.why !== undefined && (
+            <Text>
+              <Text dimColor>│   </Text>
+              <Text dimColor italic>
+                why: {a.why}
+              </Text>
+            </Text>
+          )}
+          {edit === a.id && Input !== undefined ? (
+            <Box key={`as-fixing-${a.id}`} flexDirection="column">
+              <Input
+                key={`as-fix-${a.id}`}
+                label="│   It should be: "
+                placeholder="tell Claude what's right, then Enter"
+                submitLabel="send"
+                autoFocus
+                onSubmit={(value: string) => sendCorrection($, a, value)}
+              />
+              <Box>
+                <Text dimColor>│   </Text>
+                <Button key={`as-cancel-${a.id}`} label="Cancel" onPress={() => update($, editing, () => null)} />
+              </Box>
+            </Box>
+          ) : (
+            <Box key={`as-acts-${a.id}`}>
+              <Text dimColor>│   </Text>
+              <Button key={`as-right-${a.id}`} label="✓ Right" variant="primary" onPress={() => mark($, a.id, 'right')} />
+              <Text>  </Text>
+              <Button key={`as-wrong-${a.id}`} label="✗ Fix…" onPress={() => startFix($, a, Input !== undefined)} />
+            </Box>
+          )}
+        </Box>
+      )
+    }
+
+    const reviewedRow = (a: Assumption) => (
+      <Box key={`as-row-${a.id}`} flexDirection="column">
+        <Text>
+          <Text color={a.status === 'right' ? 'green' : 'red'}>● </Text>
+          <Text dimColor>
+            A{a.id}  {a.text}
+          </Text>
+          <Text color={a.status === 'right' ? 'green' : 'red'}>{a.status === 'right' ? '   ✓ right' : '   ✗ fixed'}</Text>
+        </Text>
+        {a.correction !== undefined && (
+          <Text>
+            <Text dimColor>│   </Text>
+            <Text color="green">→ {a.correction}</Text>
+          </Text>
+        )}
+      </Box>
+    )
+
+    return (
+      <Box flexDirection="column">
+        <Text>
+          <Text bold color="black" backgroundColor={open.length > 0 ? 'yellow' : 'gray'}>
+            {` TO REVIEW ${open.length} `}
+          </Text>
+        </Text>
+        {open.length === 0 && <Text dimColor>All reviewed.</Text>}
+        {open.map(openRow)}
+        {reviewed.length > 0 && (
+          <Box marginTop={1}>
+            <Button key="as-toggle-reviewed" plain onPress={() => update($, showReviewed, v => !v)}>
+              <Text bold color="white" backgroundColor="gray">
+                {` REVIEWED ${reviewed.length} `}
+              </Text>
+              <Text dimColor> {showAll ? '▾ hide' : '▸ show'}</Text>
+            </Button>
+          </Box>
+        )}
+        {showAll && reviewed.map(reviewedRow)}
+        <Box marginTop={1}>
+          <Text dimColor>⋯  </Text>
+          {open.length > 0 && (
+            <Button
+              key="as-all-right"
+              plain
+              onPress={async () => {
+                await update($, list, all => all.map(a => (a.status === 'open' ? { ...a, status: 'right' as const } : a)))
+                await closeIfDone($)
+              }}
+            >
+              <Text dimColor>Mark all right</Text>
+            </Button>
+          )}
+          {open.length > 0 && <Text dimColor>   ·   </Text>}
+          <Button
+            key="as-clear"
+            plain
+            onPress={async () => {
+              await update($, list, () => [])
+              await update($, editing, () => null)
+            }}
+          >
+            <Text dimColor>Clear history</Text>
+          </Button>
+        </Box>
+      </Box>
+    )
+  })
+}

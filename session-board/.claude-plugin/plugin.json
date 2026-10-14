@@ -1,0 +1,45 @@
+{
+  "name": "session-board",
+  "version": "0.18.1",
+  "description": "Strip above the prompt: other sessions that need you or are done; this session's task bar, subagent models and files while it works; a recap when Claude flags a check or assumptions wait. /sessions has Sessions, Turns, Files and Context tabs. Context guard: a chip with the context size, advice and a Compact now button from 300K, an optional 10-second countdown from 500K that typing cancels, and notes that tell every compaction to keep paths, ids and rules. Each turn end from 200K adds one line (context, grade, whether it would have compacted, the saving) to ~/.claude/session-board/guard/, apart from the journal's log folder. The Context tab shows today's count from it: decisions, how many would have compacted, and the saving summed. Facts from events and git status; Claude's one-line turn summary is the only token cost, and a compaction costs what any compaction costs.",
+  "author": {
+    "name": "Richard"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "journal": {
+      "type": "boolean",
+      "title": "Journal log",
+      "description": "Keep a daily log of Claude's turns for a journal wrap-up to read, and show a 📓 button on turn cards. Needs a journal skill that reads ~/.claude/session-board/log.",
+      "default": false
+    },
+    "mode": {
+      "type": "string",
+      "title": "Context guard mode",
+      "description": "advise: show the chip and the button, never compact by itself. auto: also count down 10 s and compact at the auto line, at a good moment only. off: nothing. The mode you pick in the Context tab of /sessions wins over this setting.",
+      "options": ["advise", "auto", "off"],
+      "default": "advise"
+    },
+    "adviseAtK": {
+      "type": "string",
+      "title": "Advise from (thousand tokens)",
+      "description": "The chip offers to compact from here. It also needs the context to be 150K above its size after the last compaction.",
+      "options": ["200", "250", "300", "400"],
+      "default": "300"
+    },
+    "autoAtK": {
+      "type": "string",
+      "title": "Auto from (thousand tokens)",
+      "description": "In mode auto, the countdown can start from here: right after a commit or push, no job running, you not typing.",
+      "options": ["400", "500", "600", "700"],
+      "default": "500"
+    },
+    "vetoSeconds": {
+      "type": "string",
+      "title": "Countdown seconds",
+      "description": "How long the countdown runs before it compacts, from 5 seconds to 10 minutes. Typing, the Keep going button or sending a prompt cancels it. The length you pick in the Context tab of /sessions wins over this setting.",
+      "options": ["5", "10", "15", "30", "60", "120", "300", "600"],
+      "default": "10"
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "prompt-enhancer",
+  "version": "0.5.0",
+  "description": "'++ <request>': Claude checks your request for gaps and restates it before any work. '++goal' and '++loop': Claude drafts a short, checkable /goal or a safe, self-stopping /loop for you to start. No extra model calls.",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "Richard"
+  }
+}

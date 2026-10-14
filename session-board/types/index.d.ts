@@ -1,0 +1,192 @@
+/**
+ * open: started (or resumed), nothing asked in it since (never counted)
+ * working: a main-loop turn is running
+ * needs-you: a permission dialog or a question box is open (a fact from classic.PermissionRequest
+ *   with no hook deciding it, or an AskUserQuestion call in flight)
+ * background: the turn ended, but the session holds background work in flight (shells, subagents,
+ *   monitors, a one-shot wake-up) that will start its next turn by itself. Not your turn.
+ * replied: the turn ended with an answer and nothing is in flight, your turn
+ * stopped: interrupted or an error
+ * gone: no heartbeat (closed, crashed or asleep) · closed: the session ended
+ */
+export type BoardStatus = 'open' | 'working' | 'needs-you' | 'background' | 'replied' | 'stopped' | 'gone' | 'closed'
+
+/** One session's card, as each session writes it to the shared folder. */
+export type BoardEntry = {
+  /** Card format; 2 adds `background` and `tasks`, 3 adds `progress`. */
+  v?: number
+  id: string
+  /** The project folder, full path. */
+  folder: string
+  /** The project folder's name. */
+  project: string
+  /** Your latest prompt in that session, shortened. */
+  asked: string
+  status: BoardStatus
+  /** What it is doing now, or what it needs from you. Facts from tool calls only. */
+  activity?: string
+  /** The background work in flight when the last turn ended, one short label each. */
+  tasks?: string[]
+  /** The session's task list: items done of all items (Claude's own task list). */
+  progress?: { done: number; total: number }
+  /** Epoch ms of the last status change. */
+  changedAt: number
+  /** Epoch ms of the last heartbeat. */
+  seenAt: number
+}
+
+/** One subagent of this session, from its spawn, its steps and its tool calls. */
+export type AgentRow = {
+  id: string
+  /** The agent type (`Explore`, `general-purpose`, a plugin's agent). */
+  type: string
+  /** The Agent call's short description of the task. */
+  description: string
+  /** The model it runs on: resolved at spawn, then as each of its steps names it. */
+  model?: string
+  status: 'running' | 'done' | 'failed' | 'stopped'
+  /** Spawned to run in the background (the turn does not wait for it). */
+  background?: boolean
+  /** What it is doing now, from its own latest tool call. */
+  activity?: string
+  startedAt: number
+  endedAt?: number
+}
+
+export type FileKind = 'added' | 'modified' | 'deleted' | 'renamed'
+
+/** One changed file, as the files view lists it. */
+export type FileRow = {
+  key: string
+  /** Relative to the session's folder where inside it. */
+  path: string
+  kind: FileKind
+  /** Lines added and removed, where known. */
+  plus?: number
+  minus?: number
+  /** A rename's old path. */
+  from?: string
+  /** Where the fact comes from: Claude's own Write/Edit calls, or git status. */
+  by: 'claude' | 'git'
+}
+
+export type ToolKind = 'read' | 'edit' | 'shell' | 'test' | 'other'
+
+/** One turn of this session, as the Turns tab shows it. */
+export type TurnRecord = {
+  id: string
+  startedAt: number
+  endedAt?: number
+  status: 'running' | 'answered' | 'stopped' | 'error'
+  model?: string
+  /** Claude's own one-line summary ("Turn: …"), and what it asks you to verify ("· check: …"). */
+  summary?: string
+  check?: string
+  files: { added: number; modified: number; deleted: number; renamed: number; top: FileRow[] }
+  tools: Partial<Record<ToolKind, number>>
+  toolTotal: number
+  agents: { id: string; type: string; model?: string; status: AgentRow['status']; startedAt: number; endedAt?: number }[]
+  assumptions: { text: string; impact?: 'high' | 'low' }[]
+  /** True once its line is in the journal log (journal setting on). */
+  logged?: boolean
+}
+
+/** One compaction the guard knows of, newest first in the Context tab. */
+export type GuardCompaction = {
+  at: number
+  before: number
+  after?: number
+  /** Who compacted: the button, the countdown, or the engine's own trigger (manual, auto, plugin). */
+  via: string
+  /** How many of the file names, ports, post ids, study numbers and hashes the old context held the new summary kept. */
+  recall?: { found: number; total: number; missing: string[] }
+}
+
+/** The context guard, as the strip's chip and the Context tab draw it. Chip and decision rules: hooks/guard.ts. */
+export type GuardView = {
+  chip: 'none' | 'dim' | 'advise' | 'held' | 'snoozed' | 'stopped'
+  grade?: 'good' | 'ok' | 'hold'
+  /** Why the chip is dim, held or stopped: growth, cooldown, jobs, typing, no-shrink. */
+  reason?: string
+  /** Dollars saved per later request if it compacted now. */
+  saving: number
+  /** Tokens in the context at the last measure. */
+  ctx: number
+  window: number
+  mode: 'off' | 'advise' | 'auto'
+  /** Seconds left of the veto countdown; null when none runs. */
+  countdown: number | null
+  phase: 'idle' | 'compacting' | 'done' | 'failed'
+  done?: { before: number; after: number; saving: number; recall?: number }
+  failed?: string
+  jobs: number
+  /** The context at each turn end (the last 60), for the sparkline. */
+  series: number[]
+  history: GuardCompaction[]
+  adviseAt: number
+  autoAt: number
+  vetoSeconds: number
+  /** Where a snooze ends on the size side. */
+  snoozeCtx?: number
+  floor: number
+  /** True when ~/.claude/session-board/compact-instructions.md holds your own text. */
+  hasFile: boolean
+  /** Today's pilot log, every session's files: decisions logged, how many would have compacted, the saving per request summed over those. Undefined until read. */
+  today?: { logged: number; wouldCompact: number; saving: number }
+}
+
+declare module 'claude-code' {
+  interface PluginState {
+    'session-board': {
+      board: BoardEntry[]
+      now: number
+      /** The strip above the prompt: other sessions that need you or replied, one entry per folder. */
+      alerts: {
+        needs: { name: string; n: number }[]
+        replied: { name: string; n: number }[]
+        /** Other live sessions that are not alerts: counts only, for the strip's tail. */
+        quiet?: { working: number; waiting: number; idle: number }
+      }
+      /** This session's own state, for the strip's pill. */
+      self: { status: string; text: string } | null
+      /** Whether the panel lists ended sessions too. */
+      showEnded: boolean
+      /** This session's live detail: model, task progress, subagents, files changed this turn. */
+      live: {
+        isWorking: boolean
+        model?: string
+        progress: { done: number; total: number; now?: string } | null
+        /** Whether the bar is worth showing: items left, or the list changed this turn. */
+        showProgress: boolean
+        agents: AgentRow[]
+        turnFiles: number
+      }
+      /** Turns logged today across all sessions; null when the journal setting is off. */
+      journal: { today: number } | null
+      /** This session's turns, newest first (the last 20). */
+      turns: TurnRecord[]
+      /** The turn whose full card is open in the Turns tab's history. */
+      expanded: string | null
+      /** Assumptions still open in this session, as the assumptions mod reports them. */
+      review: { open: number; high: number }
+      /** The recap row after a turn: shown when it flagged a check or assumptions wait for review. */
+      recap: { turnId: string } | null
+      /** The context guard: the chip above the prompt and the Context tab. */
+      guard: GuardView
+      /** The panel's tab, and the files view. */
+      files: {
+        view: 'board' | 'turns' | 'files' | 'context'
+        scope: 'turn' | 'session'
+        list: FileRow[]
+        /** null: not a git folder (only Claude's own edits are listed); undefined: not checked yet. */
+        isGit?: boolean | null
+        checkedAt?: number
+        isLoading: boolean
+        /** Folders whose fold state the person flipped from its default. */
+        toggled?: string[]
+        /** The file whose diff is shown, and its lines. */
+        open: { key: string; lines: string[]; more: number; note?: string } | null
+      }
+    }
+  }
+}

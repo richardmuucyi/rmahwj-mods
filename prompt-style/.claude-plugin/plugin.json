@@ -1,0 +1,37 @@
+{
+  "name": "prompt-style",
+  "version": "0.5.0",
+  "description": "Draws your own sent prompts and slash commands in a style and colour you pick in /config (Prompt style, Prompt colour). /prompt-colours previews them all. Display only; no tokens.",
+  "author": {
+    "name": "Richard"
+  },
+  "userConfig": {
+    "style": {
+      "type": "string",
+      "title": "Prompt style",
+      "description": "light row: pale background, dark text · dark row: deep tint, bright text · outline: coloured ▌ bar and text, no background. Run /prompt-colours to see them all.",
+      "options": [
+        "light row",
+        "dark row",
+        "outline"
+      ],
+      "default": "light row"
+    },
+    "colour": {
+      "type": "string",
+      "title": "Prompt colour",
+      "description": "Works with every style. Run /prompt-colours to see each one in real colour.",
+      "options": [
+        "🟨 yellow",
+        "🟩 green",
+        "🟦 blue",
+        "🟪 purple",
+        "🟧 orange",
+        "🟥 red",
+        "⬜ grey",
+        "🟫 brown"
+      ],
+      "default": "🟨 yellow"
+    }
+  }
+}

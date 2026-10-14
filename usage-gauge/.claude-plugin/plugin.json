@@ -1,0 +1,7 @@
+{
+  "name": "usage-gauge",
+  "version": "0.3.2",
+  "description": "Two rows under the prompt: model and effort, session time, cost, output speed, tokens in/out; context, 5-hour and weekly limits as 10-cell bars with reset times. Reads usage figures only; adds no tokens.",
+  "author": { "name": "Richard" },
+  "types": "./types/index.d.ts"
+}
