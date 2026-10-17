@@ -5,8 +5,8 @@ Five small [Claude Code](https://claude.com/claude-code) mods by Richard Mah. A 
 | Mod | What it does |
 |---|---|
 | [`assumptions`](assumptions) | Claude logs each assumption it makes. You review them in a panel, mark them right or wrong, and send a correction mid-task. |
+| [`image-open`](image-open) | Paste an image with Alt+V and an `[open]` button appears above the prompt. It opens the full-size picture in your default viewer. Windows only. |
 | [`prompt-enhancer`](prompt-enhancer) | `++ <request>` makes Claude check your request for gaps and restate it before any work. `++goal` and `++loop` draft a `/goal` or `/loop` for you. |
-| [`prompt-style`](prompt-style) | Draws your own sent prompts in a style and colour you pick. Display only. |
 | [`session-board`](session-board) | A strip above the prompt that shows other sessions that need you, plus a `/sessions` view and a context-size guard. |
 | [`usage-gauge`](usage-gauge) | Two rows under the prompt: model, cost, tokens, context and your 5-hour and weekly limits. |
 
