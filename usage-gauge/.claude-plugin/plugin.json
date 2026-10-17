@@ -1,7 +1,53 @@
 {
   "name": "usage-gauge",
-  "version": "0.3.2",
-  "description": "Two rows under the prompt: model and effort, session time, cost, output speed, tokens in/out; context, 5-hour and weekly limits as 10-cell bars with reset times. Reads usage figures only; adds no tokens.",
-  "author": { "name": "Richard" },
-  "types": "./types/index.d.ts"
+  "version": "0.9.0",
+  "description": "Two rows under the prompt: model and effort chips in the Anthropic brand blue and orange (a symbol for the level), one clock chip with the session time and how long the prompt cache stays warm (⏱ 1h 12m ⏳ 52m: a dash before the first response, the theme's warning and error as the cache runs low, cold once its lifetime has passed), cost, output speed, tokens in/out, and a git chip: the branch, then three slots (↓ to pull, ± to commit, ↑ to push; a dim ?n for files git does not track yet); context, 5-hour and weekly limits as 10-cell bars in Claude Code's own bar colour (its warning from 70%, its error from 90%) with reset times; the context bar also shows the tokens held. The git chip only reads: git status every 15 seconds and after each turn, and a fetch every 5 minutes so ↓ is current (it writes git's remote-tracking refs, never your files). The branch name takes the room the pane leaves and is cut with … to fit. Each item on row 1 can be turned off in /config. Reads usage figures only; adds no tokens.",
+  "author": {
+    "name": "Richard"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "showTime": {
+      "type": "boolean",
+      "title": "Session time",
+      "description": "Row 1: how long the session has run, in the clock chip.",
+      "default": true
+    },
+    "showCost": {
+      "type": "boolean",
+      "title": "Cost",
+      "description": "Row 1: the session's cost so far, at API prices.",
+      "default": true
+    },
+    "showSpeed": {
+      "type": "boolean",
+      "title": "Output speed",
+      "description": "Row 1: tokens per second of the latest reply.",
+      "default": true
+    },
+    "showTokens": {
+      "type": "boolean",
+      "title": "Tokens in/out",
+      "description": "Row 1: the session's input and output token counts. With the git chip on, a pane narrower than 131 columns drops them to make room.",
+      "default": true
+    },
+    "showGit": {
+      "type": "boolean",
+      "title": "Git slots",
+      "description": "Row 1: the branch, then ↓ commits to pull, ± files to commit, ↑ commits to push. Reads the repository the session sits in; draws nothing outside one.",
+      "default": true
+    },
+    "showCache": {
+      "type": "boolean",
+      "title": "Cache timer",
+      "description": "Row 1: how long the prompt cache stays warm, in the clock chip after the session time.",
+      "default": true
+    },
+    "fetchRemote": {
+      "type": "boolean",
+      "title": "Fetch the remote",
+      "description": "Run git fetch every 5 minutes so ↓ shows what the remote has now. A fetch writes git's remote-tracking refs and nothing in your working tree. Off: ↓ is as of your last fetch. Needs the git slots on.",
+      "default": true
+    }
+  }
 }

@@ -26,6 +26,24 @@ const BAND = {
   view: {},
 }
 
+/** The coloured blocks of a drawn element, left to right: [background, text, text colour]. */
+function chipsOf(node: unknown, out: [string, string, string][] = []): [string, string, string][] {
+  const n = node as { props?: { backgroundColor?: string; color?: string }; children?: unknown[] } | string | undefined
+  if (n === undefined || typeof n === 'string') return out
+  if (n.props?.backgroundColor) out.push([n.props.backgroundColor, (n.children ?? []).filter(c => typeof c === 'string').join(''), n.props.color ?? ''])
+  else for (const c of n.children ?? []) chipsOf(c, out)
+  return out
+}
+
+/** The weight of each coloured block, left to right: [text, bold]. Labels are plain, the values beside them bold. */
+function weightsOf(node: unknown, out: [string, boolean][] = []): [string, boolean][] {
+  const n = node as { props?: { backgroundColor?: string; bold?: boolean }; children?: unknown[] } | string | undefined
+  if (n === undefined || typeof n === 'string') return out
+  if (n.props?.backgroundColor) out.push([(n.children ?? []).filter(c => typeof c === 'string').join(''), n.props.bold === true])
+  else for (const c of n.children ?? []) weightsOf(c, out)
+  return out
+}
+
 /** What the strip above the prompt says, whitespace folded; '' when it is not drawn. */
 async function strip($: Engine, surface: 'terminal' | 'desktop'): Promise<string> {
   const band = await $.ui.mount({ plugin: 'session-board', surface, component: 'AbovePrompt', props: BAND })
@@ -179,7 +197,33 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
     // Status line: alerts about other sessions only. A working peer and the
     // empty sessions are not alerts; this session never appears.
-    expect(await strip($, surface)).toBe('this session ⏳ Working │ others ❓ iams-ups ⏳1 ○3 sessions ›')
+    expect(await strip($, surface)).toBe('current ◔ Working │ others ? iams-ups ◔1 ○3 sessions ›')
+    // Every chip of the row sits on true black: "current" and "others" are white text, a status is its colour as the
+    // text (so a status matches the labels), every count of the quiet sessions is a chip too, and nothing divides the groups.
+    const band = await $.ui.mount({ plugin: 'session-board', surface, component: 'AbovePrompt', props: BAND })
+    const drawn = await band.find({ key: 'sb-strip' })
+    expect(chipsOf(drawn)).toEqual([
+      ['#000000', ' current  ', '#8B949E'], ['#000000', ' ◔ Working ', 'cyan'], ['#000000', ' others ', '#8B949E'],
+      ['#000000', ' ? iams-ups ', 'yellow'], ['#000000', ' ◔1 ', 'cyan'], ['#000000', ' ○3 ', 'gray'],
+    ])
+    // a dim "│" divides the two groups, one space either side of the gap
+    expect(drawn!.text).toContain('Working  │  others')
+    // dim labels, bold values: the label recedes and the value beside it is what stands out
+    expect(weightsOf(drawn)).toEqual([
+      [' current  ', false], [' ◔ Working ', true], [' others ', false], [' ? iams-ups ', true], [' ◔1 ', true], [' ○3 ', true],
+    ])
+    // no emoji: an emoji ignores the colour it is given, so the strip draws text glyphs
+    expect(drawn!.text).not.toMatch(/[⏳⌛❓🤖⏸⏹]/u)
+    // the link is the lighter blue
+    expect(JSON.stringify(await band.find({ key: 'sb-strip-open' }))).toContain('#7AA2F7')
+    // Every chip touches the next: only the two paddings sit between two of them (no gap), in both groups.
+    expect(drawn!.text).toContain('current   ◔ Working')
+    expect(drawn!.text).not.toContain('current    ')
+    // the status glyph is in cell 11: the same cell as the Actions button of the context row below it (guard.picker test)
+    expect(drawn!.text.indexOf('◔')).toBe(11)
+    expect(drawn!.text).toContain('others  ? iams-ups  ◔1  ○3')
+    expect(drawn!.text).not.toContain('iams-ups   ')
+    await band.unmount()
     // Nothing is left in the status line: the strip replaces it.
     expect(statuses.filter(s => s !== undefined)).toEqual([])
     // Own card says what it is doing, from the tool call itself.
@@ -191,15 +235,15 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const texts = (await pane.findAll({ type: 'Text' })).map(x => x.text)
     const at = (re: RegExp) => texts.findIndex(x => re.test(x))
     // Summary pills first, then THIS FOLDER with its cards, then OTHER FOLDERS by folder.
-    expect(at(/^ ❓1 $/)).toBeGreaterThanOrEqual(0)
-    expect(at(/^ THIS FOLDER $/)).toBeGreaterThan(at(/^ ❓1 $/))
+    expect(at(/^ \?1 $/)).toBeGreaterThanOrEqual(0)
+    expect(at(/^ THIS FOLDER $/)).toBeGreaterThan(at(/^ \?1 $/))
     expect(at(/vault · 3/)).toBeGreaterThan(0)
     expect(at(/“Tidy the inbox”/)).toBeGreaterThan(at(/^ THIS FOLDER $/))
     expect(at(/→ Editing Waiting\.md/)).toBeGreaterThan(0)
     expect(at(/· you/)).toBeGreaterThan(0)
     expect(at(/^ OTHER FOLDERS $/)).toBeGreaterThan(at(/Tidy the inbox/))
     expect(at(/^iams-ups$/)).toBeGreaterThan(at(/^ OTHER FOLDERS $/))
-    expect(at(/❓ Needs you/)).toBeGreaterThan(at(/^iams-ups$/))
+    expect(at(/\? Needs you/)).toBeGreaterThan(at(/^iams-ups$/))
     expect(at(/→ Approve: Run the deploy/)).toBeGreaterThan(0)
     // Ended sessions fold away (the stopped old-version card is live, not ended).
     expect(at(/Ended/)).toBe(-1)
@@ -211,12 +255,12 @@ for (const surface of ['terminal', 'desktop'] as const) {
       status: 'replied', changedAt: 1_008_000, seenAt: 1_008_000,
     }))
     await clock.advance(5_000)
-    expect(await strip($, surface)).toBe('this session ⏳ Working │ others ❓ iams-ups ✓ vault ○3 sessions ›')
+    expect(await strip($, surface)).toBe('current ◔ Working │ others ? iams-ups ✓ vault ○3 sessions ›')
 
     // A card caught mid-write keeps what it said last round.
     files.set(`${DIR}/peer.json`, '{"id":"peer","fol')
     await clock.advance(5_000)
-    expect(await strip($, surface)).toBe('this session ⏳ Working │ others ❓ iams-ups ✓ vault ○3 sessions ›')
+    expect(await strip($, surface)).toBe('current ◔ Working │ others ? iams-ups ✓ vault ○3 sessions ›')
     files.set(`${DIR}/peer.json`, card({
       id: 'peer', folder: '/home/me/vault', project: 'vault', asked: 'Tidy the inbox',
       status: 'replied', changedAt: 1_008_000, seenAt: 1_015_000,
@@ -228,7 +272,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
       status: 'replied', changedAt: 1_012_000, seenAt: 1_012_000,
     }))
     await clock.advance(5_000)
-    expect(await strip($, surface)).toBe('this session ⏳ Working │ others ❓ iams-ups ✓ vault ✓ codesignr ○3 sessions ›')
+    expect(await strip($, surface)).toBe('current ◔ Working │ others ? iams-ups ✓ vault ✓ codesignr ○3 sessions ›')
 
     // Two sessions in one folder need you: one entry with a count.
     for (const id of ['w1', 'w2']) {
@@ -243,10 +287,25 @@ for (const surface of ['terminal', 'desktop'] as const) {
       status: 'background', tasks: ['shell: Render on the GPU'], activity: 'shell: Render on the GPU', seenAt: 1_020_000,
     }))
     await clock.advance(5_000)
-    expect(await strip($, surface)).toBe('this session ⏳ Working │ others ❓ vault ×2 ❓ iams-ups ✓ vault ✓ codesignr ⌛1 ○3 sessions ›')
+    expect(await strip($, surface)).toBe('current ◔ Working │ others ? vault ×2 ? iams-ups ✓ vault ✓ codesignr ◌1 ○3 sessions ›')
+    // the waiting count is a magenta chip, the idle count a gray one (the colours of their status pills)
+    const waiting = await $.ui.mount({ plugin: 'session-board', surface, component: 'AbovePrompt', props: BAND })
+    expect(chipsOf(await waiting.find({ key: 'sb-strip' })).slice(-2)).toEqual([['#000000', ' ◌1 ', 'magenta'], ['#000000', ' ○3 ', 'gray']])
+    // many pills of the same colour still touch (each starts with its own glyph, so they read as separate names)
+    expect((await waiting.find({ key: 'sb-strip' }))!.text).toContain('others  ? vault ×2  ? iams-ups  ✓ vault  ✓ codesignr  ◌1  ○3')
+    await waiting.unmount()
     // A narrow pane: counts, not folder names.
     const narrow = await $.ui.mount({ plugin: 'session-board', surface, component: 'AbovePrompt', props: { ...BAND, bodyColumns: 36 } })
-    expect((await narrow.find({ key: 'sb-strip' }))?.text.replace(/\s+/g, ' ').trim()).toBe('⏳ │ ❓3 ✓2 ⌛1 ○3 sessions ›')
+    const narrowStrip = await narrow.find({ key: 'sb-strip' })
+    expect(narrowStrip?.text.replace(/\s+/g, ' ').trim()).toBe('current ◔ │ others ?3 ✓2 ◌1 ○3 sessions ›')
+    // the narrow strip has the same two black label chips, no pipe, and its chips touch each other too
+    expect(chipsOf(narrowStrip)).toEqual([
+      ['#000000', ' current  ', '#8B949E'], ['#000000', ' ◔ ', 'cyan'], ['#000000', ' others ', '#8B949E'],
+      ['#000000', ' ?3 ', 'yellow'], ['#000000', ' ✓2 ', 'green'], ['#000000', ' ◌1 ', 'magenta'], ['#000000', ' ○3 ', 'gray'],
+    ])
+    expect(narrowStrip?.text).toContain('◔  │  others  ?3')
+    expect(narrowStrip?.text).toContain('current   ◔')
+    expect(narrowStrip?.text).toContain('others  ?3  ✓2  ◌1  ○3')
     await narrow.unmount()
   })
 

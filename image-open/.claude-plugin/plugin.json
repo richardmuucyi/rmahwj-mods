@@ -1,0 +1,7 @@
+{
+  "name": "image-open",
+  "version": "0.1.1",
+  "description": "Paste an image with Alt+V and an [open] button appears above the prompt for each [Image #N]: it opens the full-size picture in your default viewer. No thumbnail.",
+  "author": { "name": "Richard" },
+  "types": "./types/index.d.ts"
+}

@@ -96,7 +96,7 @@ export type GuardCompaction = {
   at: number
   before: number
   after?: number
-  /** Who compacted: the button, the countdown, or the engine's own trigger (manual, auto, plugin). */
+  /** Who compacted, as the engine names the trigger: manual (you pressed Enter on a /compact), auto (the engine at its limit) or plugin. */
   via: string
   /** How many of the file names, ports, post ids, study numbers and hashes the old context held the new summary kept. */
   recall?: { found: number; total: number; missing: string[] }
@@ -104,18 +104,16 @@ export type GuardCompaction = {
 
 /** The context guard, as the strip's chip and the Context tab draw it. Chip and decision rules: hooks/guard.ts. */
 export type GuardView = {
-  chip: 'none' | 'dim' | 'advise' | 'held' | 'snoozed' | 'stopped'
-  grade?: 'good' | 'ok' | 'hold'
-  /** Why the chip is dim, held or stopped: growth, cooldown, jobs, typing, no-shrink. */
+  chip: 'none' | 'dim' | 'advise' | 'stopped'
+  grade?: 'good' | 'ok'
+  /** Why the chip is dim or stopped: growth, cooldown, no-shrink. */
   reason?: string
   /** Dollars saved per later request if it compacted now. */
   saving: number
   /** Tokens in the context at the last measure. */
   ctx: number
   window: number
-  mode: 'off' | 'advise' | 'auto'
-  /** Seconds left of the veto countdown; null when none runs. */
-  countdown: number | null
+  mode: 'off' | 'advise'
   phase: 'idle' | 'compacting' | 'done' | 'failed'
   done?: { before: number; after: number; saving: number; recall?: number }
   failed?: string
@@ -124,15 +122,23 @@ export type GuardView = {
   series: number[]
   history: GuardCompaction[]
   adviseAt: number
-  autoAt: number
-  vetoSeconds: number
-  /** Where a snooze ends on the size side. */
-  snoozeCtx?: number
   floor: number
   /** True when ~/.claude/session-board/compact-instructions.md holds your own text. */
   hasFile: boolean
-  /** Today's pilot log, every session's files: decisions logged, how many would have compacted, the saving per request summed over those. Undefined until read. */
-  today?: { logged: number; wouldCompact: number; saving: number }
+  /** Today's pilot log, every session's files: decisions logged, how many had the buttons on offer, the saving per request summed over those. Undefined until read. */
+  today?: { logged: number; advised: number; saving: number }
+  /** The picker in the Context tab is open. */
+  pickOpen: boolean
+  /** Which picker rows are ticked. */
+  picks: Record<'notes' | 'lean' | 'tasks' | 'files' | 'jobs' | 'assumptions', boolean>
+  /** What the board offers to keep: open items of the session's task list, its uncommitted files, running jobs, open assumptions (a count). */
+  facts: { tasks: string[]; files: string[]; jobs: string[]; assumptions: number; high: number }
+  /** The command the picker would type into the prompt box. */
+  command: string
+  /** The prompt box holds words of yours, so the Actions menu is drawn off. */
+  boxHolds: boolean
+  /** The Actions menu under the chip is open: Compact…, Plain compact and Clear, each of which only types. */
+  menuOpen: boolean
 }
 
 declare module 'claude-code' {

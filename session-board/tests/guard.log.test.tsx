@@ -57,18 +57,18 @@ test('log: nothing below 200K, then one line per turn end: a dim line, an advise
   expect(L).toHaveLength(2)
   expect(L[0]!.chip).toBe('dim')
   expect(L[0]!.ctx).toBe(212_000)
-  expect(L[0]!.would_compact).toBe(false)
+  expect('would_compact' in L[0]!).toBe(false)
   expect(L[0]!.saving).toBe(0.0193)
   expect('grade' in L[0]!).toBe(false)
   expect(L[1]!.chip).toBe('advise')
   expect(L[1]!.grade).toBe('good')
   expect(L[1]!.ctx).toBe(312_000)
   expect(L[1]!.advised).toBe(true)
-  expect(L[1]!.would_compact).toBe(false)
+  expect('would_compact' in L[1]!).toBe(false)
   expect(L[1]!.saving).toBe(0.0403)
 })
 
-test('log: at 512K in advise mode it says it would have compacted, and what that saves per request', async ($, on) => {
+test('log: at 512K in advise mode the line says the buttons were on offer, and what compacting would save per request', async ($, on) => {
   const clock = mock.clock(on, { now: NOWMS })
   const r = rig()
   bottom(on, r)
@@ -82,7 +82,7 @@ test('log: at 512K in advise mode it says it would have compacted, and what that
   expect(line!.ctx).toBe(512_000)
   expect(line!.grade).toBe('good')
   expect(line!.advised).toBe(true)
-  expect(line!.would_compact).toBe(true)
+  expect('would_compact' in line!).toBe(false)
   expect(line!.saving).toBe(0.0823)
   expect(line!.committed).toBe(true)
   expect(line!.jobs).toBe(0)
@@ -94,7 +94,7 @@ test('log: at 512K in advise mode it says it would have compacted, and what that
   expect(typeof line!.at).toBe('string')
 })
 
-test('log: held by a background job: grade hold, the reason, and no would_compact', async ($, on) => {
+test('log: a background job does not hold the advice back: it is advised, and the job is counted', async ($, on) => {
   const clock = mock.clock(on, { now: NOWMS })
   const r = rig()
   bottom(on, r)
@@ -106,15 +106,14 @@ test('log: held by a background job: grade hold, the reason, and no would_compac
   await $.session.measure(measure(555_000))
   await clock.advance(1_000)
   const [line] = logged(r)
-  expect(line!.chip).toBe('held')
-  expect(line!.grade).toBe('hold')
-  expect(line!.reason).toBe('jobs')
-  expect(line!.advised).toBe(false)
-  expect(line!.would_compact).toBe(false)
+  expect(line!.chip).toBe('advise')
+  expect(line!.grade).toBe('ok')
+  expect(line!.reason).toBeUndefined()
+  expect(line!.advised).toBe(true)
   expect(line!.jobs).toBe(1)
 })
 
-test('log: an uncommitted file of this session makes it an ok moment, not a would_compact', async ($, on) => {
+test('log: an uncommitted file of this session makes it an ok moment', async ($, on) => {
   const clock = mock.clock(on, { now: NOWMS })
   const r = rig({ status: [' M a.md'] })
   bottom(on, r)
@@ -127,27 +126,21 @@ test('log: an uncommitted file of this session makes it an ok moment, not a woul
   expect(line!.grade).toBe('ok')
   expect(line!.mine).toBe(1)
   expect(line!.committed).toBe(false)
-  expect(line!.would_compact).toBe(false)
 })
 
-test('log: in auto mode the line says auto and would_compact, and one decision is one line even while the countdown runs', { options: { mode: 'auto' } }, async ($, on) => {
+test('log: a mode auto kept by an older version is logged as advise, never as auto', async ($, on) => {
   const clock = mock.clock(on, { now: NOWMS })
   const r = rig()
+  r.store.set('guard.mode', 'auto')
   bottom(on, r)
   on('tool.call', toolResults)
   await $.session.start({ cwd: REPO, surface, isInteractive: true })
   await turn($, 't1', COMMIT)
   await $.session.measure(measure(512_000))
-  await clock.advance(5_000)
-  const L = logged(r)
-  expect(L).toHaveLength(1)
-  expect(L[0]!.mode).toBe('auto')
-  expect(L[0]!.would_compact).toBe(true)
-  // typing cancels the countdown: nothing was compacted, and still one line
-  await ($.prompt as unknown as { edit: (e: unknown) => Promise<unknown> }).edit({ origin: { kind: 'composer' }, text: 'h', cursor: 1, start: 0, end: 0, inputText: 'h' })
-  await clock.advance(30_000)
+  await clock.advance(1_000)
+  const [line] = logged(r)
+  expect(line!.mode).toBe('advise')
   expect(r.compacts).toHaveLength(0)
-  expect(logged(r)).toHaveLength(1)
 })
 
 test('log: the 5-second refresh and a measure that only moved a rate limit are not decisions; neither is the same size again', async ($, on) => {
@@ -239,7 +232,7 @@ test('log: a refused write never breaks the guard', async ($, on) => {
   // the chip still draws
   const band = await $.ui.mount({ plugin: 'session-board', surface, component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120, scroll: { offset: 0, bodyRows: 10 }, view: {} } })
   const chip = await band.find({ key: 'sb-guard' })
-  expect(chip!.text.replace(/\s+/g, ' ')).toContain('[ Compact now ]')
+  expect(chip!.text.replace(/\s+/g, ' ')).toContain('Actions ▾')
   await band.unmount()
   // and a later decision still tries again without an error
   await turn($, 't2')

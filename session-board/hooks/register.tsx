@@ -6,9 +6,12 @@ import {
   compactionNotes,
   configureGuard,
   contextPane,
+  guardCompactFailed,
   guardCompacted,
+  guardCompacting,
   guardMeasured,
   guardPromptSent,
+  guardOpensWithChip,
   guardRequestCounted,
   guardRow,
   guardSessionEnded,
@@ -21,7 +24,7 @@ import {
   refreshGuard,
 } from './guard-glue'
 import type { GuardIo } from './guard-glue'
-import { short, same, barCells, pad2, clockTime } from './shared'
+import { short, same, barCells, pad2, clockTime, FIRST_COL, LABEL_BG, LABEL_FG, LINK } from './shared'
 import type { Kit } from './shared'
 
 // Reads only what each session is already doing (prompts, tool calls, turn
@@ -39,6 +42,7 @@ const liveAtom = atom({ plugin: 'session-board', key: 'live' } as const, {
   showProgress: false,
   agents: [],
   turnFiles: 0,
+  bg: 0,
 })
 const turnsAtom = atom({ plugin: 'session-board', key: 'turns' } as const, [])
 const journalAtom = atom({ plugin: 'session-board', key: 'journal' } as const, null)
@@ -58,16 +62,18 @@ const guardAtom = atom({ plugin: 'session-board', key: 'guard' } as const, {
   ctx: 0,
   window: 1_000_000,
   mode: 'advise',
-  countdown: null,
   phase: 'idle',
   jobs: 0,
   series: [],
   history: [],
   adviseAt: 300_000,
-  autoAt: 500_000,
-  vetoSeconds: 10,
   floor: 120_000,
   hasFile: false,
+  pickOpen: false,
+  picks: { notes: true, lean: true, tasks: false, files: false, jobs: false, assumptions: false },
+  facts: { tasks: [], files: [], jobs: [], assumptions: 0, high: 0 },
+  command: '/compact',
+  boxHolds: false,
 })
 
 /** One colour per state, used everywhere: strip pills, panel edges, counts. */
@@ -103,14 +109,14 @@ const ORDER: Record<BoardStatus, number> = {
   closed: 7,
 }
 const ICON: Record<BoardStatus, string> = {
-  'needs-you': '❓',
-  working: '⏳',
+  'needs-you': '?',
+  working: '◔',
   replied: '✓',
-  background: '⌛',
-  stopped: '⏸',
+  background: '◌',
+  stopped: '‖',
   open: '○',
-  gone: '⏹',
-  closed: '⏹',
+  gone: '×',
+  closed: '×',
 }
 function label(c: BoardEntry): string {
   switch (c.status) {
@@ -686,6 +692,8 @@ function pushLive($: EngineInterface): void {
     showProgress: p !== null && (p.done < p.total || todoTouched),
     agents: [...agents.values()].sort((a, b) => order[a.status] - order[b.status] || a.startedAt - b.startedAt),
     turnFiles: viewList('turn').length,
+    // The strip's count: the tasks the "Waiting on …" label names (shells and timers too), else the agents still running.
+    bg: phase === 'background' ? currentTasks().length : [...agents.values()].filter(a => a.status === 'running' && a.background === true).length,
   }
   void update($, liveAtom, v => (same(v, fresh) ? v : fresh)).catch(() => undefined)
   publishTurns($)
@@ -739,8 +747,10 @@ function settleTurnFiles($: EngineInterface): void {
 
 /** Opens the panel on the files view. */
 async function openFiles($: EngineInterface): Promise<void> {
+  // Open first, inside the press (see the recap's turn button): an open after an await is "unasked".
+  const opening = $.ui.open({ id: PANE, title: 'Sessions', closeOnEscape: true })
   await update($, filesView, v => ({ ...v, view: 'files' as const, open: null }))
-  await $.ui.open({ id: PANE, title: 'Sessions', closeOnEscape: true })
+  await opening
   await publishFiles($)
   await refreshGit($)
 }
@@ -1034,9 +1044,9 @@ function turnCard($: EngineInterface, r: TurnRecord, t: number, width: number, i
   const hasHigh = r.assumptions.some(a => a.impact === 'high')
   const ended = r.endedAt ?? t
   const statusText =
-    r.status === 'running' ? <Text color="cyan">⏳ working</Text>
+    r.status === 'running' ? <Text color="cyan">◔ working</Text>
     : r.status === 'answered' ? <Text bold color="green">✓ answered</Text>
-    : r.status === 'stopped' ? <Text bold color="red">⏹ stopped</Text>
+    : r.status === 'stopped' ? <Text bold color="red">× stopped</Text>
     : <Text bold color="red">✗ error</Text>
   const fileTotal = r.files.added + r.files.modified + r.files.deleted + r.files.renamed
   const segs = TOOL_ORDER.filter(k => (r.tools[k] ?? 0) > 0)
@@ -1051,7 +1061,7 @@ function turnCard($: EngineInterface, r: TurnRecord, t: number, width: number, i
   return (
     <Box key={`sb-turn-card-${r.id}`} flexDirection="column">
       <Text>
-        {isLatest && badge(ui, `sb-turn-tag-${r.id}`, 'cyan', r.status === 'running' ? '⏳ RUNNING' : '● LATEST')}
+        {isLatest && badge(ui, `sb-turn-tag-${r.id}`, 'cyan', r.status === 'running' ? '◔ RUNNING' : '● LATEST')}
         <Text bold>{`${isLatest ? ' ' : ''}${clockTime(r.startedAt)}`}</Text>
         <Text dimColor>{` · ${duration(ended - r.startedAt)}  `}</Text>
         {r.model && badge(ui, `sb-turn-model-${r.id}`, modelColor(r.model), modelFamily(r.model))}
@@ -1077,7 +1087,7 @@ function turnCard($: EngineInterface, r: TurnRecord, t: number, width: number, i
             plain
             onPress={() => void $.prompt.fill({ text: `done ${r.summary}`, mode: 'replace' }).catch(() => undefined)}
           >
-            <Text color="blue">📓 Journal ›</Text>
+            <Text color={LINK}>📓 Journal ›</Text>
           </Button>
         )}
         {fileTotal > 0 && (
@@ -1096,7 +1106,7 @@ function turnCard($: EngineInterface, r: TurnRecord, t: number, width: number, i
             })}
             {isLatest && (
               <Button key={`sb-turn-files-${r.id}`} plain onPress={() => void openFiles($)}>
-                <Text color="blue">{fileTotal > r.files.top.length ? `all ${fileTotal} with diffs ›` : 'diffs ›'}</Text>
+                <Text color={LINK}>{fileTotal > r.files.top.length ? `all ${fileTotal} with diffs ›` : 'diffs ›'}</Text>
               </Button>
             )}
           </Box>
@@ -1124,7 +1134,7 @@ function turnCard($: EngineInterface, r: TurnRecord, t: number, width: number, i
               <Text key={`sb-turn-agent-${r.id}-${a.id}`}>
                 <Text dimColor>{i === r.agents.length - 1 ? '└─ ' : '├─ '}</Text>
                 <Text bold color={a.status === 'running' ? 'magenta' : a.status === 'done' ? 'green' : 'red'}>
-                  {a.status === 'running' ? '⏳' : a.status === 'done' ? '✓' : a.status === 'failed' ? '✗' : '⏹'}
+                  {a.status === 'running' ? '◔' : a.status === 'done' ? '✓' : a.status === 'failed' ? '✗' : '×'}
                 </Text>
                 <Text>{` ${short(a.type, 18)} `}</Text>
                 {badge(ui, `sb-turn-am-${r.id}-${a.id}`, modelColor(a.model), shortModel(a.model) ?? '?')}
@@ -1204,7 +1214,7 @@ function turnsPane(
           {earlier.map(r => {
             const isOpen = expanded === r.id
             const color = r.status === 'answered' ? 'green' : r.status === 'running' ? 'cyan' : 'red'
-            const icon = r.status === 'answered' ? '✓' : r.status === 'running' ? '⏳' : r.status === 'stopped' ? '⏹' : '✗'
+            const icon = r.status === 'answered' ? '✓' : r.status === 'running' ? '◔' : r.status === 'stopped' ? '×' : '✗'
             const files = r.files
             const line2 = r.summary ?? (r.status === 'stopped' ? 'You stopped it' : r.status === 'error' ? 'Stopped on an error' : r.toolTotal === 0 ? 'Chat only' : 'No summary line')
             const facts = [`${r.toolTotal} tools`, r.agents.length > 0 ? `${r.agents.length} subagent${r.agents.length === 1 ? '' : 's'}` : '', r.assumptions.length > 0 ? `${r.assumptions.length} assumed` : '']
@@ -1282,7 +1292,7 @@ function thisSession($: EngineInterface, l: Live, t: number, width: number, ui: 
           </Text>
           {l.agents.map(a => {
             const color = a.status === 'running' ? 'magenta' : a.status === 'failed' ? 'red' : 'gray'
-            const icon = a.status === 'running' ? '⏳' : a.status === 'done' ? '✓' : a.status === 'failed' ? '✗' : '⏹'
+            const icon = a.status === 'running' ? '◔' : a.status === 'done' ? '✓' : a.status === 'failed' ? '✗' : '×'
             const when = a.status === 'running' ? ago(t - a.startedAt) : a.status
             const head = [a.type, shortModel(a.model) ?? 'model not known yet', when].join(' · ')
             return (
@@ -1314,7 +1324,7 @@ function thisSession($: EngineInterface, l: Live, t: number, width: number, ui: 
       )}
       <Box marginTop={1}>
         <Button key="sb-files-open" plain onPress={() => void openFiles($)}>
-          <Text color="blue">
+          <Text color={LINK}>
             {l.turnFiles > 0
               ? `✎ Files changed ${l.isWorking ? 'this' : 'last'} turn · ${l.turnFiles} ›`
               : '✎ Files changed ›'}
@@ -1571,7 +1581,7 @@ function filesPane($: EngineInterface, fv: FilesState, t: number, width: number,
         {tab('session', 'Whole session')}
         <Text>{'   '}</Text>
         <Button key="sb-files-refresh" plain onPress={() => void refreshGit($)}>
-          <Text color="blue">↻ Refresh</Text>
+          <Text color={LINK}>↻ Refresh</Text>
         </Button>
       </Box>
       {counts.length > 0 && (
@@ -1639,76 +1649,21 @@ function filesPane($: EngineInterface, fv: FilesState, t: number, width: number,
   )
 }
 
-/** After a turn: what Claude asks you to verify, and assumptions waiting for review. */
-function recapStrip($: EngineInterface, columns: number, r: TurnRecord, review: { open: number; high: number }, ui: Kit): RenderElement {
-  const { Box, Text, Button } = ui
-  const sep = (k: string) => (
-    <Text key={k} dimColor>
-      {'  │  '}
-    </Text>
-  )
-  const f = r.files
-  const took = duration((r.endedAt ?? r.startedAt) - r.startedAt)
-  const fileBits: [string, string][] = []
-  if (f.added > 0) fileBits.push([`+${f.added}`, 'green'])
-  if (f.modified + f.renamed > 0) fileBits.push([`~${f.modified + f.renamed}`, 'yellow'])
-  if (f.deleted > 0) fileBits.push([`−${f.deleted}`, 'red'])
-  const ok = r.status === 'answered'
-  // The tail: the review chip, the turn's facts, the link. Claude's summary is
-  // not repeated here: its reply just above already ends with it.
-  const reviewText = `⚠ ${review.open} to review ↓`
-  const tail: RenderElement[] = []
-  if (review.open > 0) tail.push(badge(ui, 'sb-recap-review', 'yellow', reviewText))
-  if (review.open > 0) tail.push(sep('sb-recap-s1'))
-  tail.push(
-    <Text key="sb-recap-turn">
-      <Text bold color={ok ? 'green' : 'red'}>{ok ? '✓' : '⏹'}</Text>
-      <Text dimColor>{` ${took}`}</Text>
-      {fileBits.map(([x, c]) => (
-        <Text key={`sb-recap-f-${x}`} color={c}>{` ${x}`}</Text>
-      ))}
-    </Text>,
-    <Text key="sb-recap-gap">{'   '}</Text>,
-    <Button
-      key="sb-recap-open"
-      plain
-      onPress={() =>
-        void (async () => {
-          await update($, filesView, v => ({ ...v, view: 'turns' as const, open: null }))
-          await $.ui.open({ id: PANE, title: 'Sessions', closeOnEscape: true })
-        })()
-      }
-    >
-      <Text color="blue">turn ›</Text>
-    </Button>,
-  )
-  const tailWidth = (review.open > 0 ? reviewText.length + 7 : 0) + 2 + took.length + fileBits.reduce((n, [x]) => n + x.length + 1, 0) + 9
-  if (!r.check) return <Box key="sb-recap" flexWrap="wrap">{tail}</Box>
-  // The check is the point of the row: always in full. When it and the tail
-  // do not fit one row, the check takes its own row (wrapping if it must).
-  const check = (
-    <Text key="sb-recap-check">
-      {badge(ui, 'sb-recap-check-pill', 'yellow', '⚑ CHECK')}
-      <Text color="yellow">{` ${r.check}`}</Text>
-    </Text>
-  )
-  if (10 + r.check.length + 5 + tailWidth <= columns) {
-    return (
-      <Box key="sb-recap" flexWrap="wrap">
-        {check}
-        {sep('sb-recap-s0')}
-        {tail}
-      </Box>
-    )
-  }
+/**
+ * After a turn: what Claude asks you to verify, and assumptions waiting for review.
+ * One piece that sits beside the "this session" pill. Not repeated here: how long the turn
+ * took (Claude's own "Worked for" line says it), the file counts (the Files tab has them)
+ * and a link to the Turns tab (`sessions ›` opens the panel).
+ */
+function recapStrip(r: TurnRecord, review: { open: number; high: number }, ui: Kit): RenderElement {
+  const { Text } = ui
   return (
-    <Box key="sb-recap" flexDirection="column">
-      {check}
-      <Box key="sb-recap-tail" flexWrap="wrap">
-        <Text dimColor>{'          '}</Text>
-        {tail}
-      </Box>
-    </Box>
+    <Text key="sb-recap">
+      {r.check !== undefined && badge(ui, 'sb-recap-check-pill', 'yellow', '⚑ CHECK')}
+      {r.check !== undefined && <Text color="yellow">{` ${r.check}`}</Text>}
+      {r.check !== undefined && review.open > 0 && <Text>{'  '}</Text>}
+      {review.open > 0 && badge(ui, 'sb-recap-review', 'yellow', `⚠ ${review.open} to review ↓`)}
+    </Text>
   )
 }
 
@@ -1767,7 +1722,7 @@ function liveStrip($: EngineInterface, columns: number, l: Live, running: number
     tail.push(
       sep('sb-live-s1'),
       <Text key="sb-live-agents">
-        <Text>🤖 </Text>
+        <Text>◈ </Text>
         {badges}
       </Text>,
     )
@@ -1778,7 +1733,7 @@ function liveStrip($: EngineInterface, columns: number, l: Live, running: number
     tail.push(
       sep('sb-live-s2'),
       <Button key="sb-live-files" plain onPress={() => void openFiles($)}>
-        <Text color="blue">{label}</Text>
+        <Text color={LINK}>{label}</Text>
       </Button>,
     )
   }
@@ -1818,16 +1773,20 @@ function uncommittedMine(): { count: number; paths: string[] } {
   return { count: mine.size, paths: [...mine.values()].sort() }
 }
 
-/** Background shells, monitors and subagents still running. */
+/** Background shells and monitors, and subagents still running, by name. */
+function jobLines(): string[] {
+  const subagents = [...agents.values()].filter(a => a.status === 'running' && a.background !== true).map(a => `subagent ${a.type} · ${shortModel(a.model) ?? 'agent'}`)
+  return [...currentTasks(), ...subagents]
+}
+
+/** How many of them: the number the chip calls jobs, and the one the picker's row shows. */
 function jobsNow(): number {
-  return currentTasks().length + [...agents.values()].filter(a => a.status === 'running' && a.background !== true).length
+  return jobLines().length
 }
 
 function guardIo($: EngineInterface): GuardIo {
   return {
     now: () => $.clock.now(),
-    every: (ms, fn) => $.clock.every(ms, fn),
-    sleep: ms => $.clock.sleep(ms),
     toast: (text, o) => $.ui.toast(text, o),
     openPane: () => $.ui.open({ id: PANE, title: 'Sessions', closeOnEscape: true }),
     storeGet: key => $.store.get(key),
@@ -1836,8 +1795,8 @@ function guardIo($: EngineInterface): GuardIo {
     writeFile: (path, text) => $.fs.write(path, text),
     listDir: path => $.fs.list(path),
     run: (argv, o) => $.process.run(argv, o),
-    messages: () => $.session.messages(),
-    compact: o => $.session.compact(o),
+    // The guard only types into the prompt box; it never calls session.compact itself.
+    fill: text => $.prompt.fill({ text, mode: 'replace' }),
     setGuard: fn => update($, guardAtom, fn),
     showContextTab: () => update($, filesView, v => ({ ...v, view: 'context' as const, open: null })),
     review: () => read($, reviewAtom),
@@ -1847,6 +1806,8 @@ function guardIo($: EngineInterface): GuardIo {
     jobs: jobsNow,
     uncommitted: uncommittedMine,
     tasks: currentTasks,
+    todoLines: () => [...todos.values()].filter(t => t.status !== 'completed').map(t => t.subject),
+    jobLines,
     agents: () => [...agents.values()].filter(a => a.status === 'running').map(a => `${a.type} · ${shortModel(a.model) ?? 'agent'}`),
     refreshGit: () => refreshGit($),
     git: args => git($, args),
@@ -2253,6 +2214,7 @@ export const register: Register = (on, options) => {
       settleTurnEnd()
       const t = await $.clock.now()
       derive(t)
+      pushLive($)
       await flush($)
     }
     return r
@@ -2342,14 +2304,15 @@ export const register: Register = (on, options) => {
     return next(e)
   }).catch(($, e, next) => next(e))
 
-  // Typing is the main veto: the first edit while the countdown runs cancels it.
+  // The prompt box changed: words of yours switch the Actions menu off (and close it).
   on('prompt.edit', async ($, e, next) => {
-    await guardTyped(guardIo($))
+    await guardTyped(guardIo($), e.text)
     return next(e)
   }).catch(($, e, next) => next(e))
 
-  // Every compaction of this conversation (/compact, the engine's own, the guard's precompute) is told what to keep.
-  // The guard's own call skips this hook and passes the same text itself.
+  // A compaction of this conversation: the one you pressed Enter on, the engine's own late one, or a precompute.
+  // Nothing in this mod starts one. A /compact you press Enter on is never changed (a bare one is plain, the words
+  // after it are yours); the engine's own late compaction and a precompute are told what to keep (the recipe).
   on('session.compact', async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
     let told = e
@@ -2359,10 +2322,19 @@ export const register: Register = (on, options) => {
     } catch {
       // compact with what was asked
     }
-    const r = await next(told)
-    if (e.trigger !== 'precompute' && !('skip' in r && r.skip !== undefined)) {
+    const shown = e.trigger !== 'precompute'
+    if (shown) await guardCompacting(guardIo($)).catch(() => undefined)
+    let r: Awaited<ReturnType<typeof next>>
+    try {
+      r = await next(told)
+    } catch (err) {
+      if (shown) await guardCompactFailed(guardIo($), String((err as { message?: unknown })?.message ?? err)).catch(() => undefined)
+      throw err
+    }
+    if (shown) {
       try {
-        await guardCompacted(guardIo($), r, e.trigger, e.messages)
+        if ('skip' in r && r.skip !== undefined) await guardCompactFailed(guardIo($), String(r.skip))
+        else await guardCompacted(guardIo($), r, e.trigger, e.messages)
       } catch {
         // the compaction stands
       }
@@ -2385,8 +2357,11 @@ export const register: Register = (on, options) => {
     // Shown whenever another session is open: alerts as pills, the rest as dim counts.
     const hasOthers = a.needs.length > 0 || a.replied.length > 0 || quietN > 0
     // This session's background agents still running: shown only when there are any.
-    const bgN = l.agents.filter(x => x.status === 'running' && x.background === true).length
-    const hasAlerts = hasOthers || bgN > 0
+    // Only a running background agent opens the strip on its own (a lone shell or timer never did); once the strip
+    // is open, the chip counts what the "Waiting on …" label names, so the two always agree.
+    const bgAgents = l.agents.filter(x => x.status === 'running' && x.background === true).length
+    const bgN = Math.max(l.bg, bgAgents)
+    const hasAlerts = hasOthers || bgAgents > 0
     // The recap after a turn: only when it flagged a check or assumptions wait for you.
     const rc = await read($, recapAtom)
     const review = await read($, reviewAtom)
@@ -2398,22 +2373,36 @@ export const register: Register = (on, options) => {
     if ((!hasAlerts && !hasLive && !hasRecap && !hasGuard) || e.props.hasSurvey) return next(e)
     const { Box, Text, Button } = $.ui.resolve(e)
     const liveRow = hasLive ? liveStrip($, e.props.bodyColumns, l, running, { Box, Text, Button }) : null
-    const recapRow = hasRecap && rec ? recapStrip($, e.props.bodyColumns, rec, review, { Box, Text, Button }) : null
+    const recapEl = hasRecap && rec ? recapStrip(rec, review, { Box, Text, Button }) : null
     const guardEl = hasGuard ? guardRow(guardIo($), e.props.bodyColumns, g, { Box, Text, Button }) : null
-    if (!hasAlerts) {
+    // One empty row between the strip and the context row when they sit directly on each other and the context row
+    // opens with a black status chip (compacting, compacted, failed, stopped): the two rows of chips would otherwise
+    // touch and read as one slab. The quiet and advice rows open with the plain Actions button and need no gap.
+    const spacer = (
+      <Box key="sb-spacer">
+        <Text>{' '}</Text>
+      </Box>
+    )
+    if (!hasAlerts && !hasRecap) {
       const beneath = await next(e)
       return (
         <Box flexDirection="column">
           {liveRow}
-          {recapRow}
           {guardEl}
           {!isBlank(beneath) && beneath}
         </Box>
       )
     }
     const own = await read($, self)
-    const pill = (key: string, color: string, text: string) => (
-      <Text key={key} bold color="black" backgroundColor={color}>
+    // The row's chips all sit on the same true black. A label is dim plain text; a status is the status colour as bold text.
+    // (The CHECK flag and the review chip are not statuses: they keep their loud yellow block.)
+    const labelChip = (key: string, text: string) => (
+      <Text key={key} color={LABEL_FG} backgroundColor={LABEL_BG}>
+        {` ${text} `}
+      </Text>
+    )
+    const statusChip = (key: string, color: string, text: string) => (
+      <Text key={key} bold color={color} backgroundColor={LABEL_BG}>
         {` ${text} `}
       </Text>
     )
@@ -2423,47 +2412,43 @@ export const register: Register = (on, options) => {
     const needsRest = a.needs.slice(3).reduce((sum, g) => sum + g.n, 0)
     const repliedTotal = a.replied.reduce((sum, g) => sum + g.n, 0)
     const pills = [
-      ...needsShown.map((g, i) => pill(`sb-n-${i}`, 'yellow', `❓ ${named(g)}`)),
-      ...(needsRest > 0 ? [pill('sb-n-more', 'yellow', `❓ +${needsRest}`)] : []),
+      ...needsShown.map((g, i) => statusChip(`sb-n-${i}`, 'yellow', `? ${named(g)}`)),
+      ...(needsRest > 0 ? [statusChip('sb-n-more', 'yellow', `? +${needsRest}`)] : []),
       ...(a.replied.length <= 2
-        ? a.replied.map((g, i) => pill(`sb-r-${i}`, 'green', `✓ ${named(g)}`))
-        : [pill('sb-r-all', 'green', `✓ ${repliedTotal} done`)]),
+        ? a.replied.map((g, i) => statusChip(`sb-r-${i}`, 'green', `✓ ${named(g)}`))
+        : [statusChip('sb-r-all', 'green', `✓ ${repliedTotal} done`)]),
     ]
-    const spaced: RenderElement[] = []
-    pills.forEach((p, i) => {
-      if (i > 0) spaced.push(<Text key={`sb-gap-${i}`}> </Text>)
-      spaced.push(p)
-    })
-    const bgEl = bgN > 0 && (
-      <Text key="sb-bg">
-        <Text>{' '}</Text>
-        <Text bold color="black" backgroundColor="magenta">{` 🤖 ${bgN} background `}</Text>
-      </Text>
-    )
-    const quietEl = quietN > 0 && (
-      <Text key="sb-quiet">
-        {q.working > 0 && <Text color="cyan">{` ⏳${q.working}`}</Text>}
-        {q.waiting > 0 && <Text color="magenta">{` ⌛${q.waiting}`}</Text>}
-        {q.idle > 0 && <Text dimColor>{` ○${q.idle}`}</Text>}
-      </Text>
-    )
-    // A narrow terminal (a split pane): counts instead of folder names, so the
-    // row stays one short line instead of breaking into one-letter stripes.
+    // The quiet sessions: other live sessions that need nothing from you, counted by what they are doing. Each count is a
+    // chip in its status colour and glyph (the same as the status chips use), so nothing in the group is bare text.
+    const quietItems: RenderElement[] = []
+    if (q.working > 0) quietItems.push(statusChip('sb-q-working', COLOR.working, `${ICON.working}${q.working}`))
+    if (q.waiting > 0) quietItems.push(statusChip('sb-q-waiting', COLOR.background, `${ICON.background}${q.waiting}`))
+    if (q.idle > 0) quietItems.push(statusChip('sb-q-idle', COLOR.open, `${ICON.open}${q.idle}`))
+    // Every item of the group touches the next (no gaps), like the current group's pills do.
+    const groupItems = [...pills, ...quietItems]
+    const bgEl = bgN > 0 && statusChip('sb-bg', COLOR.background, `◈ ${bgN}`)
+    // A narrow terminal (a split pane): counts instead of folder names, so the row stays short instead of breaking
+    // into one-letter stripes. The same two label chips and the same "│" as the wide row, the status as its glyph only.
     if (e.props.bodyColumns < 60) {
       const needN = a.needs.reduce((n, g) => n + g.n, 0)
       const doneN = a.replied.reduce((n, g) => n + g.n, 0)
       const compact = (
         <Box key="sb-strip" flexWrap="wrap">
-          {own !== null && pill('sb-self', COLOR[own.status as BoardStatus] ?? 'gray', `${ICON[own.status as BoardStatus] ?? ''}`)}
-          {bgN > 0 && <Text bold color="black" backgroundColor="magenta">{` 🤖${bgN} `}</Text>}
+          {own !== null && labelChip('sb-current', 'current'.padEnd(FIRST_COL))}
+          {own !== null && statusChip('sb-self', COLOR[own.status as BoardStatus] ?? 'gray', `${ICON[own.status as BoardStatus] ?? ''}`)}
+          {bgN > 0 && statusChip('sb-bg', COLOR.background, `◈${bgN}`)}
           {own !== null && hasOthers && <Text dimColor>{' │ '}</Text>}
-          {needN > 0 && pill('sb-n-all', 'yellow', `❓${needN}`)}
-          {needN > 0 && doneN > 0 && <Text> </Text>}
-          {doneN > 0 && pill('sb-r-all', 'green', `✓${doneN}`)}
-          {quietEl}
+          {hasOthers && (
+            <Text key="sb-others">
+              {labelChip('sb-others-label', 'others')}
+              {needN > 0 && statusChip('sb-n-all', 'yellow', `?${needN}`)}
+              {doneN > 0 && statusChip('sb-r-all', 'green', `✓${doneN}`)}
+              {quietItems}
+            </Text>
+          )}
           <Text>{'  '}</Text>
           <Button key="sb-strip-open" plain onPress={() => $.ui.open({ id: PANE, title: 'Sessions', closeOnEscape: true })}>
-            <Text color="blue">sessions ›</Text>
+            <Text color={LINK}>sessions ›</Text>
           </Button>
         </Box>
       )
@@ -2471,25 +2456,36 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column">
           {compact}
+          {recapEl && <Box key="sb-recap-row" flexWrap="wrap">{recapEl}</Box>}
           {liveRow}
-          {recapRow}
+          {guardEl && guardOpensWithChip(g) && !recapEl && !liveRow && spacer}
           {guardEl}
           {!isBlank(beneath) && beneath}
         </Box>
       )
     }
+    // One flowing row: the "current" chip with the session's status chip touching it, what to check (its flag
+    // touches the chip too), then a "│", the "others" chip with its status chips, then the link. The "│" is the first thing
+    // of the others group, so it moves with it when the row is full and the group starts a new row.
+    // Chips inside a group touch: the gap that is left is the one between the groups.
+    const lead = own !== null || recapEl !== null
     const mine = (
       <Box key="sb-strip" flexWrap="wrap">
-        {own !== null && <Text dimColor>this session </Text>}
-        {own !== null && pill('sb-self', COLOR[own.status as BoardStatus] ?? 'gray', `${ICON[own.status as BoardStatus] ?? ''} ${own.text}`)}
+        {own !== null && labelChip('sb-current', 'current'.padEnd(FIRST_COL))}
+        {own !== null && statusChip('sb-self', COLOR[own.status as BoardStatus] ?? 'gray', `${ICON[own.status as BoardStatus] ?? ''} ${own.text}`)}
         {bgEl}
-        {own !== null && hasOthers && <Text dimColor>{'  │  '}</Text>}
-        {hasOthers && <Text dimColor>others </Text>}
-        {spaced}
-        {quietEl}
+        {recapEl}
+        {lead && hasOthers && <Text>{' '}</Text>}
+        {hasOthers && (
+          <Text key="sb-others">
+            {lead && <Text dimColor>{'│ '}</Text>}
+            {labelChip('sb-others-label', 'others')}
+            {groupItems}
+          </Text>
+        )}
         <Text>   </Text>
         <Button key="sb-strip-open" plain onPress={() => $.ui.open({ id: PANE, title: 'Sessions', closeOnEscape: true })}>
-          <Text color="blue">sessions ›</Text>
+          <Text color={LINK}>sessions ›</Text>
         </Button>
       </Box>
     )
@@ -2498,7 +2494,7 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column">
         {mine}
         {liveRow}
-        {recapRow}
+        {guardEl && guardOpensWithChip(g) && !liveRow && spacer}
         {guardEl}
         {!isBlank(beneath) && beneath}
       </Box>

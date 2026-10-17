@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { DEFAULT_INSTRUCTIONS } from '../hooks/guard'
-import { BAND, PANE_PROPS, bottom, guardText, measure, rig } from './guard-bottom'
+import { BAND, PANE_PROPS, bottom, guardChips, guardText, measure, rig } from './guard-bottom'
 
 const MIN = 60_000
 /** A compaction always holds at least one message: the engine refuses to rewrite an empty one. */
@@ -29,7 +29,7 @@ async function turn($: any, id: string, run?: { tool: string; args: Record<strin
 }
 
 for (const surface of ['terminal', 'desktop'] as const) {
-  test(`strip: under 200K nothing, from 200K a dim number with no button (${surface})`, async ($, on) => {
+  test(`strip: under 200K nothing, from 200K just the Actions button; the size is in the gauge, not here (${surface})`, async ($, on) => {
     const clock = mock.clock(on, { now: 1_000_000 })
     bottom(on, rig())
     on('tool.call', toolResults)
@@ -40,10 +40,12 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await guardText($, surface)).toBe('')
     await $.session.measure(measure(212_000))
     await clock.advance(5_000)
-    expect(await guardText($, surface)).toBe('ctx 212K')
+    expect(await guardText($, surface)).toBe('Actions ▾')
+    // no ctx chip: the row is the plain Actions button, with no black block (the context size is in the usage gauge)
+    expect(await guardChips($, surface)).toEqual([])
   })
 
-  test(`strip: from 300K, just committed: the advise chip with the saving and both buttons (${surface})`, async ($, on) => {
+  test(`strip: from 300K, just committed: the advice and the saving, one Actions menu, no ctx chip (${surface})`, async ($, on) => {
     const clock = mock.clock(on, { now: 1_000_000 })
     bottom(on, rig())
     on('tool.call', toolResults)
@@ -52,11 +54,24 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await $.session.measure(measure(312_000))
     await clock.advance(5_000)
     const t = await guardText($, surface)
-    expect(t).toContain('ctx 312K')
     expect(t).toContain('good moment: just committed')
     expect(t).toContain('compacting saves about $0.04 per request')
-    expect(t).toContain('[ Compact now ]')
-    expect(t).toContain('[ Later ]')
+    // the row starts with the Actions button, and the words follow it
+    expect(t).toBe('Actions ▾ good moment: just committed │ compacting saves about $0.04 per request')
+    // the ctx number is gone from the row (the gauge's context meter shows it), and no black chip is drawn
+    expect(t).not.toContain('ctx')
+    expect(await guardChips($, surface)).toEqual([])
+    // the advice is a hint, so it is not louder than the CHECK flag. The Actions button is the lighter link blue.
+    const band = await $.ui.mount({ plugin: 'session-board', surface, component: 'AbovePrompt', props: BAND })
+    expect(JSON.stringify(await band.find({ key: 'sb-guard-menu' }))).toContain('#7AA2F7')
+    await band.unmount()
+    // the four separate buttons are gone: Compact…, Plain and /clear sit in the menu, and Later is gone
+    expect(t).not.toContain('[ Compact… ]')
+    expect(t).not.toContain('[ Plain ]')
+    expect(t).not.toContain('[ /clear ]')
+    expect(t).not.toContain('Later')
+    expect(t).not.toContain('Compact now')
+    expect(t).not.toContain('Keep going')
   })
 
   test(`strip: a file of this session is uncommitted: the advice stays, but it is not called a good moment (${surface})`, async ($, on) => {
@@ -68,12 +83,13 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await $.session.measure(measure(312_000))
     await clock.advance(5_000)
     const t = await guardText($, surface)
-    expect(t).toContain('ctx 312K')
-    expect(t).toContain('[ Compact now ]')
+    expect(t).not.toContain('ctx')
+    expect(t).toContain('Actions ▾')
+    expect(t).toContain('ok moment')
     expect(t).not.toContain('good moment')
   })
 
-  test(`strip: a background job holds it back and says so (${surface})`, async ($, on) => {
+  test(`strip: a background job does not hold the advice back; the line says it is running (${surface})`, async ($, on) => {
     const clock = mock.clock(on, { now: 1_000_000 })
     bottom(on, rig())
     on('tool.call', toolResults)
@@ -84,38 +100,69 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await $.session.measure(measure(455_000))
     await clock.advance(5_000)
     const t = await guardText($, surface)
-    expect(t).toContain('held')
-    expect(t).toContain('ctx 455K')
-    expect(t).toContain('1 background job running')
-    expect(t).toContain('[ Compact anyway ]')
+    expect(t).not.toContain('ctx')
+    expect(t).toContain('ok moment · 1 job running │ compacting saves about')
+    expect(t).toContain('Actions ▾')
+    expect(t).not.toContain('held')
+    expect(t).not.toContain('Compact anyway')
   })
 
-  test(`button: Compact now compacts once, with the instructions and the board's facts, then shows the result (${surface})`, async ($, on) => {
+  test(`strip: two jobs are counted in the plural, and a finished job leaves the line (${surface})`, async ($, on) => {
     const clock = mock.clock(on, { now: 1_000_000 })
-    const r = rig({ before: 412_000, after: 118_000, status: [' M a.md'], history: ['edit build_compare.py on :8199'], summary: 'We edited build_compare.py.' })
+    bottom(on, rig())
+    on('tool.call', toolResults)
+    await $.session.start({ cwd: REPO, surface, isInteractive: true })
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await $.agent.spawn({ prompt: 'find', description: 'Scan the vault', subagentType: 'Explore', background: true } as never)
+    await $.agent.spawn({ prompt: 'find', description: 'Scan the inbox', subagentType: 'Explore', background: true } as never)
+    await $.turn.complete({ answer: 'ok', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
+    await $.session.measure(measure(455_000))
+    await clock.advance(5_000)
+    expect(await guardText($, surface)).toContain('· 2 jobs running')
+  })
+
+  test(`result row: a /compact you press Enter on is left plain, and the chip then shows its result with the recall (${surface})`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    const r = rig({ before: 412_000, after: 118_000, status: [' M a.md'], summary: 'We edited build_compare.py.' })
     bottom(on, r)
     on('tool.call', toolResults)
     await $.session.start({ cwd: REPO, surface, isInteractive: true })
     await turn($, 't1', { tool: 'Edit', args: { file_path: `${REPO}/a.md`, old_string: 'a', new_string: 'b' } })
     await $.session.measure(measure(412_000))
     await clock.advance(5_000)
-    const band = await $.ui.mount({ plugin: 'session-board', surface, component: 'AbovePrompt', props: BAND })
-    await band.press({ key: 'sb-guard-now' })
+    // Enter on a /compact: the engine fires session.compact with the trigger `manual`
+    await $.session.compact({ messages: MSGS, trigger: 'manual' } as never)
     await clock.advance(1_000)
     expect(r.compacts).toHaveLength(1)
-    const told = r.compacts[0]!
-    expect(told.instructions!.startsWith(DEFAULT_INSTRUCTIONS)).toBe(true)
-    expect(told.instructions).toContain('Context before compaction: 412K · branch main · last commit 650df709')
-    expect(told.instructions).toContain('  - a.md')
-    const after = (await band.find({ key: 'sb-guard' }))!.text.replace(/\s+/g, ' ')
+    expect(r.compacts[0]!.instructions).toBeUndefined()
+    const after = await guardText($, surface)
     expect(after).toContain('compacted')
     expect(after).toContain('412K → 118K')
     expect(after).toContain('−$0.06 per request')
     expect(after).toContain('recall 50%')
-    await band.unmount()
   })
 
-  test(`button: Later snoozes it, and it stays quiet while the context grows less than 100K (${surface})`, async ($, on) => {
+  test(`result row: the engine's own late compaction gets the recipe, and the chip shows its result too (${surface})`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    const r = rig({ before: 760_000, after: 130_000, status: [' M a.md'], summary: 'We edited build_compare.py.' })
+    bottom(on, r)
+    on('tool.call', toolResults)
+    await $.session.start({ cwd: REPO, surface, isInteractive: true })
+    await turn($, 't1', { tool: 'Edit', args: { file_path: `${REPO}/a.md`, old_string: 'a', new_string: 'b' } })
+    await $.session.measure(measure(760_000))
+    await clock.advance(5_000)
+    await $.session.compact({ messages: MSGS, trigger: 'auto' } as never)
+    await clock.advance(1_000)
+    const told = r.compacts[0]!
+    expect(told.instructions!.startsWith(DEFAULT_INSTRUCTIONS)).toBe(true)
+    expect(told.instructions).toContain('Context before compaction: 760K · branch main · last commit 650df709')
+    expect(told.instructions).toContain('  - a.md')
+    const after = await guardText($, surface)
+    expect(after).toContain('compacted')
+    expect(after).toContain('760K → 130K')
+  })
+
+  test(`no Later and no snooze: the advice stays while the context grows, until you act (${surface})`, async ($, on) => {
     const clock = mock.clock(on, { now: 1_000_000 })
     const r = rig()
     bottom(on, r)
@@ -125,103 +172,19 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await $.session.measure(measure(312_000))
     await clock.advance(5_000)
     const band = await $.ui.mount({ plugin: 'session-board', surface, component: 'AbovePrompt', props: BAND })
-    await band.press({ key: 'sb-guard-later' })
-    expect((await band.find({ key: 'sb-guard' }))!.text).toContain('snoozed')
+    expect(await band.find({ key: 'sb-guard-later' })).toBeUndefined()
     await band.unmount()
     await turn($, 't2')
     await $.session.measure(measure(330_000))
     await clock.advance(31 * MIN)
-    expect(await guardText($, surface)).toContain('snoozed')
-    expect(r.compacts).toHaveLength(0)
-  })
-
-  test(`auto: a countdown from 10 s, typing cancels it, nothing is compacted (${surface})`, { options: { mode: 'auto' } }, async ($, on) => {
-    const clock = mock.clock(on, { now: 1_000_000 })
-    const r = rig()
-    bottom(on, r)
-    on('tool.call', toolResults)
-    await $.session.start({ cwd: REPO, surface, isInteractive: true })
-    await turn($, 't1', { tool: 'Bash', args: { command: 'git commit -m done' } })
-    await $.session.measure(measure(512_000))
-    // The countdown starts at the measure: 10 s, then 7 s three seconds later.
-    expect(await guardText($, surface)).toContain('compacting in 10 s')
-    await clock.advance(3_000)
-    expect(await guardText($, surface)).toContain('compacting in 7 s')
-    expect(await guardText($, surface)).toContain('[ Keep going ]')
-    // the engine's test kit does not type prompt.edit as a call yet; it answers at run time
-    await ($.prompt as unknown as { edit: (e: unknown) => Promise<unknown> }).edit({ origin: { kind: 'composer' }, text: 'h', cursor: 1, start: 0, end: 0, inputText: 'h' })
-    expect(await guardText($, surface)).toContain('snoozed')
-    await clock.advance(15_000)
-    expect(r.compacts).toHaveLength(0)
-  })
-
-  test(`auto: the Keep going button cancels the countdown too (${surface})`, { options: { mode: 'auto' } }, async ($, on) => {
-    const clock = mock.clock(on, { now: 1_000_000 })
-    const r = rig()
-    bottom(on, r)
-    on('tool.call', toolResults)
-    await $.session.start({ cwd: REPO, surface, isInteractive: true })
-    await turn($, 't1', { tool: 'Bash', args: { command: 'git commit -m done' } })
-    await $.session.measure(measure(512_000))
-    await clock.advance(2_000)
-    const band = await $.ui.mount({ plugin: 'session-board', surface, component: 'AbovePrompt', props: BAND })
-    await band.press({ key: 'sb-guard-keep' })
-    expect((await band.find({ key: 'sb-guard' }))!.text).toContain('snoozed')
-    await band.unmount()
-    await clock.advance(15_000)
-    expect(r.compacts).toHaveLength(0)
-  })
-
-  test(`auto: sending a prompt cancels the countdown (${surface})`, { options: { mode: 'auto' } }, async ($, on) => {
-    const clock = mock.clock(on, { now: 1_000_000 })
-    const r = rig()
-    bottom(on, r)
-    on('tool.call', toolResults)
-    await $.session.start({ cwd: REPO, surface, isInteractive: true })
-    await turn($, 't1', { tool: 'Bash', args: { command: 'git commit -m done' } })
-    await $.session.measure(measure(512_000))
-    await clock.advance(2_000)
-    expect(await guardText($, surface)).toContain('compacting in 8 s')
-    await $.prompt.submit({ text: 'wait', origin: { kind: 'composer' }, wait: false })
-    expect(await guardText($, surface)).toContain('snoozed')
-    await clock.advance(15_000)
-    expect(r.compacts).toHaveLength(0)
-  })
-
-  test(`auto: nobody cancels, so it compacts after 10 s and shows the result (${surface})`, { options: { mode: 'auto' } }, async ($, on) => {
-    const clock = mock.clock(on, { now: 1_000_000 })
-    const r = rig()
-    bottom(on, r)
-    on('tool.call', toolResults)
-    await $.session.start({ cwd: REPO, surface, isInteractive: true })
-    await turn($, 't1', { tool: 'Bash', args: { command: 'git commit -m done' } })
-    await $.session.measure(measure(512_000))
-    await clock.advance(9_000)
-    expect(r.compacts).toHaveLength(0)
-    await clock.advance(2_000)
-    expect(r.compacts).toHaveLength(1)
-    expect(await guardText($, surface)).toContain('compacted')
-  })
-
-  test(`auto: with a job running it only holds, and never counts down (${surface})`, { options: { mode: 'auto' } }, async ($, on) => {
-    const clock = mock.clock(on, { now: 1_000_000 })
-    const r = rig()
-    bottom(on, r)
-    on('tool.call', toolResults)
-    await $.session.start({ cwd: REPO, surface, isInteractive: true })
-    await $.turn.start({ text: 'go', turnId: 't1' })
-    await $.tool.call({ tool: 'Bash', command: 'git commit -m done' })
-    await $.agent.spawn({ prompt: 'find', description: 'Scan', subagentType: 'Explore', background: true } as never)
-    await $.turn.complete({ answer: 'ok', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
-    await $.session.measure(measure(555_000))
-    await clock.advance(15_000)
     const t = await guardText($, surface)
-    expect(t).toContain('held')
-    expect(t).not.toContain('compacting in')
+    expect(t).not.toContain('ctx')
+    expect(t).toContain('Actions ▾')
+    expect(t).not.toContain('snoozed')
     expect(r.compacts).toHaveLength(0)
   })
 
-  test(`advise mode never counts down, even at 700K (${surface})`, async ($, on) => {
+  test(`advise mode only offers buttons, even at 700K: nothing compacts and nothing is typed by itself (${surface})`, async ($, on) => {
     const clock = mock.clock(on, { now: 1_000_000 })
     const r = rig()
     bottom(on, r)
@@ -231,9 +194,11 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await $.session.measure(measure(700_000))
     await clock.advance(30_000)
     const t = await guardText($, surface)
-    expect(t).toContain('[ Compact now ]')
+    expect(t).toContain('Actions ▾')
     expect(t).not.toContain('compacting in')
+    expect(t).not.toContain('Keep going')
     expect(r.compacts).toHaveLength(0)
+    expect(r.fills).toHaveLength(0)
   })
 
   test(`mode off: no chip at 612K (${surface})`, { options: { mode: 'off' } }, async ($, on) => {
@@ -250,10 +215,10 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await pane.press({ key: 'sb-tab-context' })
     await pane.press({ key: 'sb-guard-mode-advise' })
     await pane.unmount()
-    expect(await guardText($, surface)).toContain('[ Compact now ]')
+    expect(await guardText($, surface)).toContain('Actions ▾')
   })
 
-  test(`session.compact: every trigger gets the instructions, your own /compact text is left alone (${surface})`, async ($, on) => {
+  test(`session.compact: a /compact you press Enter on is never changed; the engine's own late one and a precompute get the recipe (${surface})`, async ($, on) => {
     mock.clock(on, { now: 1_000_000 })
     const r = rig()
     bottom(on, r)
@@ -265,12 +230,15 @@ for (const surface of ['terminal', 'desktop'] as const) {
       await $.session.compact({ messages: MSGS, ...e } as never)
       return r.compacts[0]!
     }
-    const bare = await run({ trigger: 'manual' })
-    expect(bare.instructions!.startsWith(DEFAULT_INSTRUCTIONS)).toBe(true)
-    expect(bare.instructions).toContain('Facts from the session board')
-    expect((await run({ trigger: 'auto' })).instructions!.startsWith(DEFAULT_INSTRUCTIONS)).toBe(true)
-    expect((await run({ trigger: 'precompute' })).instructions!.startsWith(DEFAULT_INSTRUCTIONS)).toBe(true)
+    // a bare /compact (the Plain button, or typed by hand) is a plain compact: nothing is added
+    expect((await run({ trigger: 'manual' })).instructions).toBeUndefined()
+    // the words after /compact are yours, whatever they are
     expect((await run({ trigger: 'manual', instructions: 'keep the plan' })).instructions).toBe('keep the plan')
+    // the engine at its limit and a precompute: nobody types those, so they get the recipe and the board's facts
+    const auto = await run({ trigger: 'auto' })
+    expect(auto.instructions!.startsWith(DEFAULT_INSTRUCTIONS)).toBe(true)
+    expect(auto.instructions).toContain('Facts from the session board')
+    expect((await run({ trigger: 'precompute' })).instructions!.startsWith(DEFAULT_INSTRUCTIONS)).toBe(true)
     // a subagent's or a fork's own compaction is not this session's
     expect((await run({ trigger: 'auto', agentId: 'a9' })).instructions).toBeUndefined()
   })
@@ -300,8 +268,10 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await turn($, 't2', { tool: 'Bash', args: { command: 'git push' } })
     await $.session.measure(measure(560_000))
     await clock.advance(5_000)
-    // 4 minutes after a compaction: cooling, so only the number
-    expect(await guardText($, surface)).toBe('ctx 560K')
+    // you send a prompt, which ends the last compaction's result row
+    await $.prompt.submit({ text: 'go on', origin: { kind: 'composer' }, wait: false })
+    // 4 minutes after a compaction: cooling, so only the Actions button
+    expect(await guardText($, surface)).toBe('Actions ▾')
   })
 
   test(`Context tab: mode, thresholds, the last compaction with its recall, the instructions file (${surface})`, async ($, on) => {
@@ -317,20 +287,28 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await pane.press({ key: 'sb-tab-context' })
     const texts = async () => (await pane.findAll({ type: 'Text' })).map(x => x.text.replace(/\s+/g, ' ').trim()).join(' | ')
     let t = await texts()
+    expect(r.compacts).toHaveLength(0)
     expect(t).toContain('Context 412K')
-    expect(t).toContain('advise 300K · auto 500K · veto 10 s')
+    expect(t).toContain('advise from 300K')
     expect(t).toContain('Advise')
+    expect(t).toContain('Off')
+    expect(t).not.toContain('Auto')
+    expect(t).not.toContain('veto')
+    expect(t).not.toContain('countdown')
+    expect(t).not.toContain('Compact now')
     expect(t).toContain('now → after: 412K → about 120K')
     expect(t).toContain('saves about $0.06 per request')
     expect(t).toContain('Last compactions')
     expect(t).toContain('none yet')
     expect(t).toContain('compact-instructions.md')
-    await pane.press({ key: 'sb-guard-compact' })
+    // you press Enter on a /compact: the history takes it in
+    await $.session.compact({ messages: [{ role: 'user', text: 'edit build_compare.py, :8199, 0095', toolUses: [] }], trigger: 'manual' } as never)
     await clock.advance(1_000)
     t = await texts()
     expect(t).toContain('412K → 118K')
     expect(t).toContain('recall 67%')
     expect(t).toContain('missing: 8199')
+    expect(t).toContain('manual')
     await pane.unmount()
   })
 
@@ -342,12 +320,13 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await $.session.start({ cwd: REPO, surface, isInteractive: true })
     const pane = await $.ui.mount({ plugin: 'session-board', surface, component: 'Pane', requestId: 'session-board', props: PANE_PROPS } as never)
     await pane.press({ key: 'sb-tab-context' })
-    await pane.press({ key: 'sb-guard-mode-auto' })
-    expect(r.store.get('guard.mode')).toBe('auto')
+    expect(await pane.find({ key: 'sb-guard-mode-auto' })).toBeUndefined()
+    await pane.press({ key: 'sb-guard-mode-off' })
+    expect(r.store.get('guard.mode')).toBe('off')
     await pane.unmount()
     await turn($, 't1', { tool: 'Bash', args: { command: 'git commit -m done' } })
     await $.session.measure(measure(512_000))
-    expect(await guardText($, surface)).toContain('compacting in 10 s')
+    expect(await guardText($, surface)).toBe('')
   })
 
   test(`a mode kept from an earlier session is used at start (${surface})`, async ($, on) => {
@@ -367,69 +346,33 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await pane.press({ key: 'sb-guard-mode-advise' })
     await pane.unmount()
     expect(r.store.get('guard.mode')).toBe('advise')
-    expect(await guardText($, surface)).toContain('ctx 612K')
+    expect(await guardText($, surface)).toContain('Actions ▾')
   })
 
-  test(`countdown length: the Context tab sets it, the next countdown runs that long, and it is kept (${surface})`, { options: { mode: 'auto' } }, async ($, on) => {
+  test(`a mode \`auto\` kept by an older version reads as advise, and a kept countdown length is ignored (${surface})`, async ($, on) => {
     const clock = mock.clock(on, { now: 1_000_000 })
     const r = rig()
-    bottom(on, r)
-    on('tool.call', toolResults)
-    await $.session.start({ cwd: REPO, surface, isInteractive: true })
-    const pane = await $.ui.mount({ plugin: 'session-board', surface, component: 'Pane', requestId: 'session-board', props: PANE_PROPS } as never)
-    await pane.press({ key: 'sb-tab-context' })
-    const texts = async () => (await pane.findAll({ type: 'Text' })).map(x => x.text.replace(/\s+/g, ' ').trim()).join(' | ')
-    expect(await texts()).toContain('veto 10 s')
-    await pane.press({ key: 'sb-guard-veto-60' })
-    expect(r.store.get('guard.veto')).toBe(60)
-    expect(await texts()).toContain('veto 60 s')
-    await pane.unmount()
-    await turn($, 't1', { tool: 'Bash', args: { command: 'git commit -m done' } })
-    await $.session.measure(measure(512_000))
-    expect(await guardText($, surface)).toContain('compacting in 60 s')
-    await clock.advance(30_000)
-    expect(await guardText($, surface)).toContain('compacting in 30 s')
-    expect(r.compacts).toHaveLength(0)
-    await clock.advance(31_000)
-    expect(r.compacts).toHaveLength(1)
-  })
-
-  test(`countdown length: a long one reads as a clock, and a length kept from an earlier session is used at start (${surface})`, { options: { mode: 'auto' } }, async ($, on) => {
-    const clock = mock.clock(on, { now: 1_000_000 })
-    const r = rig()
+    r.store.set('guard.mode', 'auto')
     r.store.set('guard.veto', 120)
     bottom(on, r)
     on('tool.call', toolResults)
     await $.session.start({ cwd: REPO, surface, isInteractive: true })
     await turn($, 't1', { tool: 'Bash', args: { command: 'git commit -m done' } })
     await $.session.measure(measure(512_000))
-    expect(await guardText($, surface)).toContain('compacting in 2:00')
-    await clock.advance(20_000)
-    expect(await guardText($, surface)).toContain('compacting in 1:40')
     await clock.advance(30_000)
-    // 50 s gone of 120 s
-    expect(await guardText($, surface)).toContain('compacting in 70 s')
-    await $.prompt.submit({ text: 'wait', origin: { kind: 'composer' }, wait: false })
-    await clock.advance(200_000)
+    const t = await guardText($, surface)
+    expect(t).toContain('Actions ▾')
+    expect(t).not.toContain('compacting in')
     expect(r.compacts).toHaveLength(0)
+    expect(r.fills).toHaveLength(0)
+    const pane = await $.ui.mount({ plugin: 'session-board', surface, component: 'Pane', requestId: 'session-board', props: PANE_PROPS } as never)
+    await pane.press({ key: 'sb-tab-context' })
+    const texts = (await pane.findAll({ type: 'Text' })).map(x => x.text.replace(/\s+/g, ' ').trim()).join(' | ')
+    expect(texts).not.toContain('Auto')
+    await pane.unmount()
   })
 
-  test(`countdown length: the /config setting works the same, up to 10 minutes (${surface})`, { options: { mode: 'auto', vetoSeconds: '300' } }, async ($, on) => {
-    const clock = mock.clock(on, { now: 1_000_000 })
-    const r = rig()
-    bottom(on, r)
-    on('tool.call', toolResults)
-    await $.session.start({ cwd: REPO, surface, isInteractive: true })
-    await turn($, 't1', { tool: 'Bash', args: { command: 'git commit -m done' } })
-    await $.session.measure(measure(512_000))
-    expect(await guardText($, surface)).toContain('compacting in 5:00')
-    await clock.advance(299_000)
-    expect(r.compacts).toHaveLength(0)
-    await clock.advance(2_000)
-    expect(r.compacts).toHaveLength(1)
-  })
-
-  test(`a narrow terminal gets the short chip (${surface})`, async ($, on) => {
+  test(`a narrow terminal gets the Actions button alone (${surface})`, async ($, on) => {
     const clock = mock.clock(on, { now: 1_000_000 })
     bottom(on, rig())
     on('tool.call', toolResults)
@@ -438,8 +381,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await $.session.measure(measure(312_000))
     await clock.advance(5_000)
     const t = await guardText($, surface, { bodyColumns: 50 })
-    expect(t).toContain('ctx 312K')
-    expect(t).toContain('[ compact ]')
+    expect(t).toBe('Actions ▾')
     expect(t).not.toContain('per request')
+    expect(t).not.toContain('Plain')
   })
 }

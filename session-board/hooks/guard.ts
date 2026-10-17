@@ -2,42 +2,29 @@
 // 90 System/Generated HTMLs/vault/context-guard-design.html (decided 2026-10-13). Pure functions only:
 // nothing here reads the engine, the clock or a file.
 
-export type Mode = 'off' | 'advise' | 'auto'
-export type Chip = 'none' | 'dim' | 'advise' | 'held' | 'snoozed' | 'stopped'
-export type Grade = 'good' | 'ok' | 'hold'
+export type Mode = 'off' | 'advise'
+export type Chip = 'none' | 'dim' | 'advise' | 'stopped'
+export type Grade = 'good' | 'ok'
 
 export type GuardConfig = {
   mode: Mode
   /** Tokens: the dim chip shows from here. */
   dimAt: number
-  /** Tokens: the advice and its button start here. */
+  /** Tokens: the advice and its buttons start here. */
   adviseAt: number
-  /** Tokens: in mode auto, the countdown may start from here. */
-  autoAt: number
-  vetoSeconds: number
-  /** Advice and auto also need the context this far above the floor, so a big attachment cannot cause an instant second compaction. */
+  /** The advice also needs the context this far above the floor, so a big attachment cannot cause an instant second compaction. */
   minGrowth: number
   cooldownRequests: number
   cooldownMs: number
-  /** A veto or "Later" keeps quiet until the context has grown this much AND snoozeMs have passed. */
-  snoozeTokens: number
-  snoozeMs: number
-  /** An edit of the prompt box this recent holds the guard back. */
-  typingMs: number
 }
 
 export const DEFAULTS: GuardConfig = {
   mode: 'advise',
   dimAt: 200_000,
   adviseAt: 300_000,
-  autoAt: 500_000,
-  vetoSeconds: 10,
   minGrowth: 150_000,
   cooldownRequests: 8,
   cooldownMs: 20 * 60_000,
-  snoozeTokens: 100_000,
-  snoozeMs: 30 * 60_000,
-  typingMs: 20_000,
 }
 
 /** About what a session holds right after a compaction: the system part (about 107K) and a short summary. */
@@ -53,7 +40,6 @@ export type GuardState = {
   floor: number
   lastCompactAt?: number
   requestsSinceCompact: number
-  snooze?: { ctx: number; until: number }
   /** Compactions in a row that did not shrink the context by a fifth. */
   shrinkFailures: number
 }
@@ -63,22 +49,18 @@ export type TurnFacts = {
   ctx: number
   /** A turn is running: nothing can be offered, and the engine rejects a compaction. */
   isWorking: boolean
-  /** Background shells, monitors and subagents still running. */
+  /** Background shells, monitors and subagents still running. The chip says so; it does not hold the advice back. */
   jobs: number
   /** The turn that just ended ran a successful git commit or push. */
   lastTurnCommitted: boolean
   /** Files this session changed that git still shows as uncommitted. */
   uncommittedMine: number
-  /** When the prompt box was last edited. */
-  lastTypedAt?: number
 }
 
 export type Decision = {
   chip: Chip
   grade?: Grade
-  /** Mode auto, a good moment and past the auto line: start the countdown. */
-  autoStart: boolean
-  /** Why a chip is dim, held or stopped: growth, cooldown, jobs, typing, no-shrink. */
+  /** Why a chip is dim or stopped: growth, cooldown, no-shrink. */
   reason?: string
   /** Dollars saved per later request if it compacted now. */
   saving: number
@@ -94,34 +76,20 @@ export function savingPerRequest(ctx: number): number {
 
 export function decide(cfg: GuardConfig, st: GuardState, f: TurnFacts): Decision {
   const saving = savingPerRequest(f.ctx)
-  const quiet = (chip: Chip, reason?: string): Decision => ({ chip, autoStart: false, reason, saving })
+  const quiet = (chip: Chip, reason?: string): Decision => ({ chip, reason, saving })
   if (cfg.mode === 'off' || f.isWorking || f.ctx < cfg.dimAt) return quiet('none')
   const floorLine = st.floor + cfg.minGrowth
   const adviseLine = Math.max(cfg.adviseAt, floorLine)
-  const autoLine = Math.max(cfg.autoAt, floorLine)
   if (f.ctx < adviseLine) return quiet('dim', f.ctx >= cfg.adviseAt ? 'growth' : undefined)
   if (st.shrinkFailures >= 2) return quiet('stopped', 'no-shrink')
   const isCooling = st.requestsSinceCompact < cfg.cooldownRequests || (st.lastCompactAt !== undefined && f.now - st.lastCompactAt < cfg.cooldownMs)
   if (isCooling) return quiet('dim', 'cooldown')
-  const sn = st.snooze
-  if (sn && !(f.ctx >= sn.ctx + cfg.snoozeTokens && f.now >= sn.until)) return quiet('snoozed')
-  if (f.jobs > 0) return { chip: 'held', grade: 'hold', autoStart: false, reason: 'jobs', saving }
-  if (f.lastTypedAt !== undefined && f.now - f.lastTypedAt < cfg.typingMs) return { chip: 'held', grade: 'hold', autoStart: false, reason: 'typing', saving }
   const grade: Grade = f.lastTurnCommitted && f.uncommittedMine === 0 ? 'good' : 'ok'
-  return { chip: 'advise', grade, autoStart: cfg.mode === 'auto' && grade === 'good' && f.ctx >= autoLine, saving }
-}
-
-/** Would the guard have started a countdown by itself at this moment, as if the mode were auto? The pilot log asks this at every turn end. */
-export function wouldCompact(cfg: GuardConfig, st: GuardState, f: TurnFacts): boolean {
-  return cfg.mode !== 'off' && decide({ ...cfg, mode: 'auto' }, st, f).autoStart
-}
-
-export function afterVeto(cfg: GuardConfig, st: GuardState, ctx: number, now: number): GuardState {
-  return { ...st, snooze: { ctx, until: now + cfg.snoozeMs } }
+  return { chip: 'advise', grade, saving }
 }
 
 export function afterCompact(_cfg: GuardConfig, st: GuardState, r: { before: number; after?: number; now: number }): GuardState {
-  const next: GuardState = { ...st, lastCompactAt: r.now, requestsSinceCompact: 0, snooze: undefined }
+  const next: GuardState = { ...st, lastCompactAt: r.now, requestsSinceCompact: 0 }
   if (r.after === undefined) return next
   next.floor = r.after
   next.shrinkFailures = r.after > r.before * 0.8 ? st.shrinkFailures + 1 : 0
@@ -154,10 +122,8 @@ export type DecisionLog = {
   chip: Chip
   grade?: Grade
   reason?: string
-  /** A Compact now button was on offer. */
+  /** The compact buttons were on offer. */
   advised: boolean
-  /** The guard would have started a countdown by itself (as if the mode were auto). */
-  would_compact: boolean
   /** Dollars per later request that compacting now would have saved. */
   saving: number
   floor: number
@@ -202,7 +168,6 @@ export function formatDecision(d: DecisionLog): string {
     grade: d.grade,
     reason: d.reason,
     advised: d.advised,
-    would_compact: d.would_compact,
     saving: Math.round(d.saving * 10_000) / 10_000,
     floor: d.floor,
     jobs: d.jobs,
@@ -222,16 +187,16 @@ export function expiredDays(names: string[], now: number, keepDays: number): str
 }
 
 /** What one day's log holds, for the Context tab's line. */
-export type DaySummary = { logged: number; wouldCompact: number; saving: number }
+export type DaySummary = { logged: number; advised: number; saving: number }
 
 /**
  * Reads the text of the day's files, every session's. A decision is a line that parses to an object with a number
  * for ctx; a blank line, a half-written one or one from another tool is skipped. The saving is summed over the
- * would_compact decisions only, and rounded to four places.
+ * advised decisions only, and rounded to four places. A `would_compact` field in an older line is ignored.
  */
 export function summarizeDay(texts: string[]): DaySummary {
   let logged = 0
-  let wouldCompact = 0
+  let advised = 0
   let saving = 0
   for (const text of texts) {
     for (const raw of text.split('\n')) {
@@ -244,21 +209,21 @@ export function summarizeDay(texts: string[]): DaySummary {
         continue
       }
       if (typeof rec !== 'object' || rec === null) continue
-      const d = rec as { ctx?: unknown; would_compact?: unknown; saving?: unknown }
+      const d = rec as { ctx?: unknown; advised?: unknown; saving?: unknown }
       if (typeof d.ctx !== 'number') continue
       logged += 1
-      if (d.would_compact !== true) continue
-      wouldCompact += 1
+      if (d.advised !== true) continue
+      advised += 1
       if (typeof d.saving === 'number' && Number.isFinite(d.saving)) saving += d.saving
     }
   }
-  return { logged, wouldCompact, saving: Math.round(saving * 10_000) / 10_000 }
+  return { logged, advised, saving: Math.round(saving * 10_000) / 10_000 }
 }
 
-/** The line itself: decisions, how many would have compacted, the saving per request summed over those. */
+/** The line itself: decisions, how many had the buttons on offer, the saving per request summed over those. */
 export function formatDay(s: DaySummary): string {
   if (s.logged === 0) return 'no decisions logged yet'
-  return `${s.logged} ${s.logged === 1 ? 'decision' : 'decisions'} · ${s.wouldCompact} would compact · $${s.saving.toFixed(2)} per request, summed`
+  return `${s.logged} ${s.logged === 1 ? 'decision' : 'decisions'} · ${s.advised} advised · $${s.saving.toFixed(2)} per request, summed`
 }
 
 // ── what the summary is told ──────────────────────────────────────────────────
@@ -291,14 +256,18 @@ export type InstructionFacts = {
 
 const LIST_CAP = 20
 
-/** The text for `session.compact`, or undefined to leave the user's own `/compact` text alone. */
+/**
+ * The text for `session.compact`, or undefined to leave the compaction exactly as it was asked.
+ * A `/compact` you press Enter on (typed by hand, or filled by a button) is never changed: a bare one is a plain
+ * compact and the words after it are yours. Only the engine's own late compaction (and a precompute) gets the
+ * recipe, because nobody types those.
+ */
 export function compactInstructions(o: {
   trigger: 'manual' | 'auto' | 'plugin' | 'precompute'
-  userText?: string
   base: string
   facts: InstructionFacts
 }): string | undefined {
-  if (o.trigger === 'manual' && (o.userText ?? '').trim() !== '') return undefined
+  if (o.trigger === 'manual') return undefined
   const f = o.facts
   const lines: string[] = ['Facts from the session board (trust these over memory):']
   lines.push(`• Context before compaction: ${fmtK(f.ctx)}${f.branch ? ` · branch ${f.branch}` : ''}${f.lastCommit ? ` · last commit ${f.lastCommit}` : ''}`)
@@ -316,6 +285,94 @@ export function compactInstructions(o: {
   lines.push(`• Subagents running: ${f.agents.length > 0 ? f.agents.join(', ') : 'none'}`)
   lines.push(`• Assumptions still open: ${f.assumptions.length > 0 ? f.assumptions.join(', ') : 'none'}`)
   return `${o.base}\n\n${lines.join('\n')}`
+}
+
+// ── the picker: the /compact command the mod types for you ─────────────────────
+// The mod only types this into the prompt box. You read it, change it if you like, and press Enter.
+
+export type PickId = 'notes' | 'lean' | 'tasks' | 'files' | 'jobs' | 'assumptions'
+export type Picks = Record<PickId, boolean>
+
+/** What the board offers to keep. The numbers of assumptions come from the assumptions mod, which shares counts only. */
+export type PickFacts = { tasks: string[]; files: string[]; jobs: string[]; assumptions: number; high: number }
+
+/** The rows of the picker, in the order their sentences appear in the command. */
+export const PICK_ORDER: PickId[] = ['notes', 'lean', 'tasks', 'files', 'jobs', 'assumptions']
+
+/** The first two start ticked; the rest start off. */
+export const DEFAULT_PICKS: Picks = { notes: true, lean: true, tasks: false, files: false, jobs: false, assumptions: false }
+
+export const NOTES_SENTENCE =
+  'Write the notes in six parts: rules I gave (quote my words), state, identifiers copied exactly, decisions with reasons, open questions, facts to verify first.'
+export const LEAN_SENTENCE = 'Leave out raw tool output and logs.'
+
+const TASK_CAP = 8
+const LIST_CAP_PICK = 20
+const TASK_CHARS = 80
+const ITEM_CHARS = 120
+
+/** One line: control characters and line breaks become a space, runs of spaces fold, and a long item is cut. */
+export function cleanItem(s: string, max: number): string {
+  // eslint-disable-next-line no-control-regex
+  const one = s.replace(/[\u0000-\u001f\u007f\u0085\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim()
+  return one.length <= max ? one : `${one.slice(0, max - 1).trimEnd()}…`
+}
+
+/** "a, b and 3 more": the first `cap` items, then how many were left out. */
+function listText(items: string[], cap: number, max: number, sep: string): string {
+  const shown = items.slice(0, cap).map(x => cleanItem(x, max)).filter(x => x !== '')
+  const more = items.length - cap
+  return `${shown.join(sep)}${more > 0 ? ` and ${more} more` : ''}`
+}
+
+/** How many things a row would keep; a row with none cannot be ticked. */
+export function pickCount(id: PickId, facts: PickFacts): number {
+  switch (id) {
+    case 'tasks':
+      return facts.tasks.length
+    case 'files':
+      return facts.files.length
+    case 'jobs':
+      return facts.jobs.length
+    case 'assumptions':
+      return facts.assumptions
+    default:
+      return 1
+  }
+}
+
+function sentenceFor(id: PickId, facts: PickFacts): string {
+  if (pickCount(id, facts) === 0) return ''
+  // A list whose items all came out empty (a line break and nothing else) says nothing, so it adds no sentence.
+  const withList = (lead: string, text: string): string => (text === '' ? '' : `${lead}${text}.`)
+  switch (id) {
+    case 'notes':
+      return NOTES_SENTENCE
+    case 'lean':
+      return LEAN_SENTENCE
+    case 'tasks':
+      return withList('Keep in full detail: the open items of the task list: ', listText(facts.tasks, TASK_CAP, TASK_CHARS, '; '))
+    case 'files':
+      return withList('Keep these uncommitted files by path: ', listText(facts.files, LIST_CAP_PICK, ITEM_CHARS, ', '))
+    case 'jobs':
+      return withList('Jobs still running: ', listText(facts.jobs, LIST_CAP_PICK, ITEM_CHARS, '; '))
+    case 'assumptions':
+      return `Assumptions still open: ${facts.assumptions}${facts.high > 0 ? ` (${facts.high} high impact)` : ''}.`
+  }
+}
+
+/**
+ * The command the picker types. Nothing ticked (or only rows with nothing to keep) is a bare `/compact`.
+ * It is one line: no line breaks or control characters, however odd a path or a task subject is.
+ */
+export function buildCompactCommand(picks: Picks, facts: PickFacts): string {
+  const sentences = PICK_ORDER.filter(id => picks[id]).map(id => sentenceFor(id, facts)).filter(s => s !== '')
+  return sentences.length === 0 ? '/compact' : `/compact ${sentences.join(' ')}`
+}
+
+/** The buttons that type may replace the box only when it is empty or still holds what they typed last. */
+export function boxIsFree(box: string, lastFilled: string | undefined): boolean {
+  return box.trim() === '' || (lastFilled !== undefined && box === lastFilled)
 }
 
 // ── recall: how much of what mattered the new summary kept ────────────────────
@@ -366,34 +423,20 @@ export function sparkWithMarks(values: number[], max: number): string {
 
 // ── config ────────────────────────────────────────────────────────────────────
 
-/** The countdown can run from 3 seconds to 10 minutes. */
-export const MIN_VETO = 3
-export const MAX_VETO = 600
-
-/** A length of time as the settings show it: seconds, or whole minutes from two minutes. */
-export function fmtSeconds(n: number): string {
-  return n >= 120 && n % 60 === 0 ? `${n / 60} min` : `${n} s`
-}
-
-/** What is left of a countdown: seconds while short, then m:ss so a long one reads as a clock. */
-export function fmtCountdown(n: number): string {
-  return n < 100 ? `${n} s` : `${Math.floor(n / 60)}:${String(n % 60).padStart(2, '0')}`
-}
-
 function num(v: unknown): number {
   if (typeof v === 'number') return v
   if (typeof v === 'string' && v.trim() !== '') return Number(v)
   return Number.NaN
 }
 
-/** The plugin's userConfig values, checked; thresholds arrive in thousands of tokens. */
+/** The mode a stored or configured value stands for. The old `auto` (removed in 0.19.0) reads as `advise`. */
+export function parseMode(v: unknown): Mode {
+  return v === 'off' ? 'off' : 'advise'
+}
+
+/** The plugin's userConfig values, checked; thresholds arrive in thousands of tokens. Settings that no longer exist are ignored. */
 export function parseConfig(o: Record<string, unknown>): GuardConfig {
-  const mode: Mode = o.mode === 'off' || o.mode === 'advise' || o.mode === 'auto' ? o.mode : DEFAULTS.mode
   const adviseK = num(o.adviseAtK)
   const adviseAt = Number.isFinite(adviseK) && adviseK >= 100 ? Math.round(adviseK * 1000) : DEFAULTS.adviseAt
-  const autoK = num(o.autoAtK)
-  const autoRaw = Number.isFinite(autoK) && autoK >= 100 ? Math.round(autoK * 1000) : DEFAULTS.autoAt
-  const veto = num(o.vetoSeconds)
-  const vetoSeconds = Number.isFinite(veto) ? Math.min(MAX_VETO, Math.max(MIN_VETO, Math.round(veto))) : DEFAULTS.vetoSeconds
-  return { ...DEFAULTS, mode, adviseAt, autoAt: Math.max(autoRaw, adviseAt), vetoSeconds }
+  return { ...DEFAULTS, mode: parseMode(o.mode), adviseAt }
 }

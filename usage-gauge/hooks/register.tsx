@@ -1,10 +1,13 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderElement, SessionContextBreakdown } from 'claude-code'
 
-import type { Gauge, Limit } from '../types'
+import type { Gauge, Git, Limit } from '../types'
+import { clip, layoutOf, parseStatus, showOf, slotsOf } from './git'
+import type { Show } from './git'
 
 // Reads the session's own usage figures, the model each request names and the
-// token counts each turn reports. Nothing reaches the model: no tokens.
+// token counts each turn reports, and (read-only) the state of the git repository the session sits in. Nothing reaches
+// the model: no tokens.
 
 const gauge = atom({ plugin: 'usage-gauge', key: 'gauge' } as const, {
   startedAt: 0,
@@ -16,25 +19,59 @@ const gauge = atom({ plugin: 'usage-gauge', key: 'gauge' } as const, {
 
 const REFRESH_MS = 15_000
 
-/** A bright palette: stages, data colours, chips. */
-const C = {
-  ok: '#4ade80',
-  warn: '#fbbf24',
-  bad: '#f87171',
-  blue: '#60a5fa',
-  violet: '#a78bfa',
-  cyan: '#22d3ee',
-  model: '#3b5bdb',
+/** What the person chose to show (the manifest's userConfig); `register` sets it from its options. */
+let show: Show = showOf({})
+
+/**
+ * The model and effort chips use Anthropic's brand accents (blue and orange) with the brand dark for the text. White
+ * text on the orange is 3.1:1, below the 4.5:1 small text needs; the dark is 5.9:1 on it and 6.3:1 on the blue.
+ */
+const CHIP = {
+  model: { bg: '#6a9bcc', fg: '#141413' },
+  effort: { bg: '#d97757', fg: '#141413' },
 }
-const EFFORT: Record<string, { bg: string; fg: string }> = {
-  low: { bg: '#64748b', fg: '#ffffff' },
-  medium: { bg: '#14b8a6', fg: '#04201c' },
-  high: { bg: '#f59e0b', fg: '#1c1203' },
-  xhigh: { bg: '#ef4444', fg: '#ffffff' },
-  max: { bg: '#d946ef', fg: '#ffffff' },
+/** Claude Code's own symbols for the effort levels, so the level reads here as it does there. One colour; the shape is the level. */
+const GLYPH: Record<string, string> = { low: '○', medium: '◐', high: '●', xhigh: '◉', max: '◈' }
+
+/**
+ * A meter is drawn in Claude Code's own colours, by theme key, so it follows the person's theme: the fill its own usage
+ * bars use, then the theme's warning from 70% and its error from 90%. The cost, speed and token numbers are plain text.
+ */
+const stage = (pct: number) => (pct >= 90 ? 'error' : pct >= 70 ? 'warning' : 'rate_limit_fill')
+
+const MIN_MS = 60_000
+/** The two lifetimes the API offers for a prompt cache entry. */
+const TTL_MS = { '5m': 5 * MIN_MS, '1h': 60 * MIN_MS } as const
+type Ttl = keyof typeof TTL_MS
+
+const isTtl = (v: unknown): v is Ttl => v === '5m' || v === '1h'
+const isOn = (v: string | undefined): boolean => v === '1' || v === 'true'
+
+/**
+ * The lifetime the person chose for the main conversation's cache, in Claude Code's own order of precedence:
+ * FORCE_PROMPT_CACHING_5M, CLAUDE_CODE_PROMPT_CACHE_TTL, the promptCacheTtl setting, ENABLE_PROMPT_CACHING_1H. Anything
+ * but "5m" or "1h" is ignored there, so it is here. Undefined: none chosen, and the plan decides (cacheTtl).
+ */
+async function chosenTtl($: EngineInterface, settings: Record<string, unknown> | undefined): Promise<Ttl | undefined> {
+  if (isOn(await $.env.get('FORCE_PROMPT_CACHING_5M').catch(() => undefined))) return '5m'
+  const env = await $.env.get('CLAUDE_CODE_PROMPT_CACHE_TTL').catch(() => undefined)
+  if (isTtl(env)) return env
+  if (isTtl(settings?.promptCacheTtl)) return settings.promptCacheTtl
+  if (isOn(await $.env.get('ENABLE_PROMPT_CACHING_1H').catch(() => undefined))) return '1h'
+  return undefined
 }
 
-const stage = (pct: number) => (pct >= 90 ? C.bad : pct >= 70 ? C.warn : C.ok)
+/**
+ * The lifetime to count down from. Claude Code asks for an hour for the main conversation only on a subscription within
+ * its plan's usage (the plan's 5-hour and weekly windows are reported, and neither is at 100%); an API key, a cloud
+ * provider and usage credits get five minutes. A choice of the person's beats that.
+ */
+function cacheTtl(g: Gauge): Ttl {
+  if (g.ttlChoice) return g.ttlChoice
+  const onPlan = g.fiveHour !== undefined || g.weekly !== undefined
+  const over = (g.fiveHour?.pct ?? 0) >= 100 || (g.weekly?.pct ?? 0) >= 100
+  return onPlan && !over ? '1h' : '5m'
+}
 
 /** Ten cells, each a full 10%: rounded down, so the bar is only full at 100%. */
 function cells(pct: number): [number, number] {
@@ -92,6 +129,12 @@ function effortName(e: unknown): string | undefined {
   return undefined
 }
 
+/** "● high". A level with no symbol (a token budget, a name this build does not know) is its name alone, never a wrong shape. */
+function effortLabel(effort: string): string {
+  const glyph = GLYPH[effort]
+  return glyph ? `${glyph} ${effort}` : effort
+}
+
 /**
  * What the next response carries besides the conversation: system prompt, tools, memory files, skills. It is the
  * breakdown's used rows other than Messages. Without a Messages row the two cannot be told apart, so there is none.
@@ -118,19 +161,21 @@ async function refresh($: EngineInterface): Promise<void> {
   const u = await $.session.usage()
   const t = await $.clock.now()
   const model = await $.session.model().catch(() => undefined)
+  const settings = await $.settings.read().catch(() => undefined)
   // Before the first request names it: the effort the session starts with.
   const startEffort =
     (await $.env.get('CLAUDE_CODE_EFFORT_LEVEL').catch(() => undefined)) ||
-    (await $.settings
-      .read()
-      .then(x => (typeof x.effortLevel === 'string' ? x.effortLevel : undefined))
-      .catch(() => undefined))
+    (typeof settings?.effortLevel === 'string' ? settings.effortLevel : undefined)
+  const ttlChoice = await chosenTtl($, settings)
   const limit = (kind: string): Limit | undefined => {
     const r = u.rateLimits.find(x => x.kind === kind)
     return r ? { pct: r.percentUsed, resetsAt: r.resetsAt } : undefined
   }
   await update($, gauge, g => ({
     ...g,
+    // A /clear starts the session's figures over: what was cached belongs to the conversation that is gone.
+    ...(g.startedAt > 0 && u.startedAt > 0 && u.startedAt !== g.startedAt ? { cacheAt: undefined, cacheModel: undefined } : {}),
+    ttlChoice,
     startedAt: u.startedAt,
     now: t,
     model: model || g.model,
@@ -149,6 +194,65 @@ async function refresh($: EngineInterface): Promise<void> {
   }))
 }
 
+/**
+ * The git slots read the repository the session sits in, and only read it. `$.process.run` runs git with the repository's
+ * hooks off, so a plugin must never commit or push: status and fetch are all this file runs, and tests/git.test.tsx holds
+ * every argv to that. `--no-optional-locks` keeps status from taking the index lock, so it never makes the person's own
+ * git command wait. The v2 porcelain format gives the branch, ahead and behind, and one line per file in a single call.
+ */
+const GIT_STATUS = ['git', '--no-optional-locks', '-c', 'core.quotepath=off', 'status', '--porcelain=v2', '--branch', '--untracked-files=normal']
+/** A fetch writes git's remote-tracking refs and nothing in the working tree. It must never stop to ask for a password. */
+const GIT_FETCH = ['git', 'fetch', '--quiet', '--no-recurse-submodules']
+const GIT_FETCH_ENV = { GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' }
+/** How often the remote is asked for news, so that ↓ is current. */
+const FETCH_MS = 5 * MIN_MS
+
+let gitBusy = false
+let fetching = false
+let fetchedAt = 0
+let fetchFailed = false
+let upstream = false
+
+/** Runs `git status` and keeps the counts. A git that did not answer (it timed out) leaves the last counts; one that failed (not a repository) clears them. */
+async function readGit($: EngineInterface): Promise<void> {
+  const r = await $.process.run(GIT_STATUS, { timeoutMs: 15_000 }).catch(() => undefined)
+  if (!r) return
+  const parsed = r.exitCode === 0 ? parseStatus(r.stdout) : undefined
+  upstream = parsed?.upstream === true
+  const git: Git | undefined = parsed && (fetchFailed && parsed.upstream ? { ...parsed, stale: true } : parsed)
+  await update($, gauge, g => ({ ...g, git })).catch(() => undefined)
+}
+
+/** Asks the remote for news, then reads the counts again. A failed fetch (offline, no credentials) makes ↓ a question mark. */
+async function fetchGit($: EngineInterface): Promise<void> {
+  try {
+    const r = await $.process.run(GIT_FETCH, { env: GIT_FETCH_ENV, timeoutMs: 20_000 }).catch(() => undefined)
+    fetchFailed = !r || r.exitCode !== 0
+    await readGit($)
+  } finally {
+    fetching = false
+  }
+}
+
+/** The status now, and a fetch when one is due. Never awaited by a turn: the fetch can take as long as the network does. */
+async function refreshGit($: EngineInterface): Promise<void> {
+  if (!show.git || gitBusy) return
+  gitBusy = true
+  try {
+    await readGit($)
+    const t = await $.clock.now()
+    if (show.fetch && upstream && !fetching && t - fetchedAt >= FETCH_MS) {
+      fetching = true
+      fetchedAt = t
+      void fetchGit($).catch(() => undefined)
+    }
+  } catch {
+    // never in the way of the gauge
+  } finally {
+    gitBusy = false
+  }
+}
+
 type Usage = { input_tokens: number; output_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number }
 function addUsage(g: Gauge, u: Usage): Gauge {
   return {
@@ -159,7 +263,106 @@ function addUsage(g: Gauge, u: Usage): Gauge {
   }
 }
 
+/**
+ * The main conversation's cache after a response. An entry lives from the START of the request that wrote or read it
+ * (not from the end of the reply), and each request that reports cache tokens, a hit or a write, restarts that clock. A
+ * response with none means nothing was cached (a prompt under the model's minimum, or caching off).
+ */
+function withCache(g: Gauge, u: Usage, sentAt: number | undefined, model: string): Gauge {
+  if ((u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0) <= 0) return { ...g, cacheAt: undefined, cacheModel: undefined }
+  if (sentAt === undefined) return g
+  return { ...g, cacheAt: sentAt, cacheModel: model, now: Math.max(g.now, sentAt) }
+}
+
 type Kit = { Box: (p: any) => RenderElement; Text: (p: any) => RenderElement }
+
+/**
+ * "⏳ 52m": how long the main conversation's prompt cache stays warm, counted from the request that last wrote or read
+ * it. The minutes are rounded up, so "1m" lasts to the last second. The value is plain text while there is time, then
+ * drawn in the same theme keys as a meter that fills: warning once 70% of the lifetime is spent, error from 90%, so the
+ * colour is relative to the lifetime (an hour on a plan, five minutes otherwise) and the number carries no note of it.
+ * "cold" in error once it has run out; a dash when nothing is cached (before the first response, after a /clear, a
+ * compaction or a model switch).
+ */
+function cacheChip(ui: Kit, g: Gauge, now: number): RenderElement {
+  const { Text } = ui
+  const glyph = <Text dimColor>{'⏳ '}</Text>
+  if (g.cacheAt === undefined) {
+    return (
+      <Text key="ug-cache">
+        {glyph}
+        <Text dimColor>–</Text>
+      </Text>
+    )
+  }
+  const ttl = cacheTtl(g)
+  const total = TTL_MS[ttl]
+  const left = g.cacheAt + total - Math.max(now, g.cacheAt)
+  if (left <= 0) {
+    return (
+      <Text key="ug-cache">
+        {glyph}
+        <Text color={stage(100)}>cold</Text>
+      </Text>
+    )
+  }
+  const color = stage(((total - left) / total) * 100)
+  const mins = Math.ceil(left / MIN_MS)
+  return (
+    <Text key="ug-cache">
+      {glyph}
+      <Text {...(color === 'rate_limit_fill' ? {} : { color })}>{`${mins}m`}</Text>
+    </Text>
+  )
+}
+
+/**
+ * "⏱ 1h 12m ⏳ 52m": the session's clock and the cache's, one chip, one space between. Either part can be turned off in
+ * /config and the other stands alone. Nothing at all when both are off, or when only the time is on and the session has
+ * not started.
+ */
+function clockChip(ui: Kit, g: Gauge, now: number, withTime: boolean, withCache: boolean): RenderElement | undefined {
+  const { Text } = ui
+  const parts: RenderElement[] = []
+  if (withTime && g.startedAt > 0) {
+    parts.push(
+      <Text key="ug-time">
+        <Text dimColor>⏱ </Text>
+        <Text>{duration(now - g.startedAt)}</Text>
+      </Text>,
+    )
+  }
+  if (withCache) parts.push(cacheChip(ui, g, now))
+  if (parts.length === 0) return undefined
+  return <Text key="ug-clock">{parts.flatMap((p, i) => (i === 0 ? [p] : [<Text key="ug-clock-s">{' '}</Text>, p]))}</Text>
+}
+
+/**
+ * "main ↓2 ±4 ↑1": the branch, then the repository's three questions in three fixed places, so the eye learns where to look. ↓ is what the
+ * remote has that this branch lacks (pull), ± is what waits to be committed, ↑ is what waits to be pushed (a dim ?n
+ * between them counts files git does not track yet, where the pane has room). A zero is dim and a count is lit, so a
+ * clean repository is three dim zeros, never a missing chip. The colours are the theme's: warning for news on the
+ * remote, error for a branch that has diverged or a file in conflict (slotsOf has the rules).
+ */
+function gitChip(ui: Kit, git: Git, withUntracked: boolean, branchRoom: number): RenderElement {
+  const { Text } = ui
+  const parts: RenderElement[] = []
+  // The branch is the one piece of the chip that gives: cut short with … to the room the pane leaves, or left out.
+  const branch = branchRoom > 0 ? clip(git.branch, branchRoom) : ''
+  if (branch !== '') {
+    parts.push(<Text key="ug-git-branch">{branch}</Text>)
+    parts.push(<Text key="ug-git-b">{' '}</Text>)
+  }
+  slotsOf(git, withUntracked).forEach((s, i) => {
+    if (i > 0) parts.push(<Text key={`ug-git-s${i}`}>{' '}</Text>)
+    parts.push(
+      <Text key={`ug-git-${s.key}`} {...(s.color ? { color: s.color } : {})} {...(s.dim ? { dimColor: true } : {})}>
+        {s.text}
+      </Text>,
+    )
+  })
+  return <Text key="ug-git">{parts}</Text>
+}
 
 function meter(ui: Kit, key: string, label: string, l: Limit | undefined, reset: string | undefined): RenderElement {
   const { Text } = ui
@@ -179,16 +382,21 @@ function meter(ui: Kit, key: string, label: string, l: Limit | undefined, reset:
       <Text color={color}>{'▰'.repeat(on)}</Text>
       <Text dimColor>{'▱'.repeat(off)}</Text>
       <Text bold color={color}>{` ${l.approx ? '~' : ''}${Math.round(l.pct)}%`}</Text>
+      {l.tokens !== undefined && <Text>{` ${l.approx ? '~' : ''}${num(l.tokens)}`}</Text>}
       {reset && <Text dimColor>{` ↻ ${reset}`}</Text>}
     </Text>
   )
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  show = showOf(options)
+
   on('session.start', async ($, e, next) => {
     await refresh($).catch(() => undefined)
+    void refreshGit($)
     $.clock.every(REFRESH_MS, () => {
       void refresh($).catch(() => undefined)
+      void refreshGit($)
     })
     return next(e)
   })
@@ -210,9 +418,12 @@ export const register: Register = on => {
       const model = e.model
       const effort = effortName(e.effort)
       void update($, gauge, g => (g.ran && g.model === model && g.effort === effort ? g : { ...g, model, effort: effort ?? g.effort, ran: true })).catch(() => undefined)
+      // A cache belongs to the model that wrote it: a request on another model has none to read, so the clock goes.
+      void update($, gauge, g => (g.cacheModel !== undefined && g.cacheModel !== model ? { ...g, cacheAt: undefined, cacheModel: undefined } : g)).catch(() => undefined)
     } catch {
       // never in the way of the request
     }
+    const sentAt = await $.clock.now().catch(() => undefined)
     const stream = next(e)
     let first: number | undefined
     let piece = await stream.next()
@@ -224,7 +435,7 @@ export const register: Register = on => {
     const result = piece.value
     try {
       const u = result?.usage
-      if (u) void update($, gauge, g => addUsage(g, u)).catch(() => undefined)
+      if (u) void update($, gauge, g => withCache(addUsage(g, u), u, sentAt, e.model)).catch(() => undefined)
       const out = result?.usage?.output_tokens
       const end = await $.clock.now()
       if (first !== undefined && out && out >= 20 && end - first > 300) {
@@ -251,14 +462,19 @@ export const register: Register = on => {
     } catch {
       context = undefined
     }
-    await update($, gauge, g => ({ ...g, context })).catch(() => undefined)
+    // The conversation is rewritten, so the cache of the old one is no use: a dash until the next response caches the new.
+    await update($, gauge, g => ({ ...g, context, cacheAt: undefined, cacheModel: undefined })).catch(() => undefined)
     return r
   }).catch(($, e, next) => next(e))
 
   // A turn ended: cost, context and limits have moved.
   on('turn.complete', async ($, e, next) => {
     const r = await next(e)
-    if (e.agentId === undefined) await refresh($).catch(() => undefined)
+    if (e.agentId === undefined) {
+      await refresh($).catch(() => undefined)
+      // The turn may have written files or committed: look again, without making the turn wait for git.
+      void refreshGit($)
+    }
     return r
   }).catch(($, e, next) => next(e))
 
@@ -267,50 +483,53 @@ export const register: Register = on => {
     const { Box, Text } = $.ui.resolve(e)
     const ui = { Box, Text }
     const g: Gauge = await read($, gauge)
-    const cols = (e.props as { bodyColumns?: number }).bodyColumns ?? 120
-    const isNarrow = cols < 90
+    // The surface's own measure. PromptHint's props carry no width (that is the AbovePrompt band's `bodyColumns`), so
+    // reading one here always fell back to wide. A surface that has not measured (no width, or 0) is drawn wide, whatever
+    // the threshold.
+    // With the git slots on the row, the token counts give way to them in a pane too narrow for both (see layoutOf).
+    // `show.git` is checked here as well as in refreshGit: the gauge's state outlives the reload that a change in /config
+    // causes, so a repository read by the module before it can still be in it.
+    const slots = show.git && g.git !== undefined
+    const { narrow: isNarrow, tokens: withTokens, untracked: withUntracked, branch: branchRoom } = layoutOf(e.viewport?.columns, slots, show.tokens)
     const t = g.now || g.startedAt
     const chip = g.model && (
       <Text key="ug-chip">
-        <Text bold color="#ffffff" backgroundColor={C.model}>{` ${isNarrow ? shortModel(g.model) : g.model} `}</Text>
+        <Text bold color={CHIP.model.fg} backgroundColor={CHIP.model.bg}>{` ${isNarrow ? shortModel(g.model) : g.model} `}</Text>
         {g.effort && (
-          <Text bold color={EFFORT[g.effort]?.fg ?? '#ffffff'} backgroundColor={EFFORT[g.effort]?.bg ?? '#64748b'}>
-            {` ${g.effort} `}
+          <Text bold color={CHIP.effort.fg} backgroundColor={CHIP.effort.bg}>
+            {` ${effortLabel(g.effort)} `}
           </Text>
         )}
       </Text>
     )
     const gap = (k: string) => <Text key={k}>{'   '}</Text>
+    // Row 1 is the items the person chose and the pane has room for, three spaces apart: a missing one leaves no hole.
+    const items: RenderElement[] = []
+    if (chip) items.push(chip)
+    const clock = clockChip(ui, g, t, show.time, show.cache)
+    if (clock) items.push(clock)
+    if (show.cost && g.ran && g.cost !== undefined) items.push(<Text key="ug-cost" bold>{`$${g.cost.toFixed(2)}`}</Text>)
+    if (show.speed && g.ran) {
+      items.push(g.tps !== undefined ? <Text key="ug-tps">{`⚡ ${g.tps} t/s`}</Text> : <Text key="ug-tps" dimColor>⚡ – t/s</Text>)
+    }
+    if (withTokens && g.ran) {
+      items.push(
+        <Text key="ug-tokens">
+          <Text dimColor>in </Text>
+          {g.tokensIn > 0 ? <Text>{num(g.tokensIn)}</Text> : <Text dimColor>–</Text>}
+          <Text dimColor>  out </Text>
+          {g.tokensIn > 0 ? <Text>{num(g.tokensOut)}</Text> : <Text dimColor>–</Text>}
+        </Text>,
+      )
+    }
+    if (slots && g.git) items.push(gitChip(ui, g.git, withUntracked, branchRoom))
     const row1 = (
       <Box key="ug-row1" flexWrap="wrap">
-        {chip}
-        {chip && gap('ug-g1')}
-        {g.startedAt > 0 && (
-          <Text key="ug-time">
-            <Text dimColor>⏱ </Text>
-            <Text>{duration(t - g.startedAt)}</Text>
-          </Text>
-        )}
-        {g.ran && g.cost !== undefined && gap('ug-g2')}
-        {g.ran && g.cost !== undefined && <Text key="ug-cost" bold color={C.ok}>{`$${g.cost.toFixed(2)}`}</Text>}
-        {g.ran && gap('ug-g3')}
-        {!g.ran ? null : g.tps !== undefined ? (
-          <Text key="ug-tps" color={C.cyan}>{`⚡ ${g.tps} t/s`}</Text>
-        ) : (
-          <Text key="ug-tps" dimColor>⚡ – t/s</Text>
-        )}
-        {g.ran && !isNarrow && gap('ug-g4')}
-        {g.ran && !isNarrow && (
-          <Text key="ug-tokens">
-            <Text dimColor>in </Text>
-            {g.tokensIn > 0 ? <Text color={C.blue}>{num(g.tokensIn)}</Text> : <Text dimColor>–</Text>}
-            <Text dimColor>  out </Text>
-            {g.tokensIn > 0 ? <Text color={C.violet}>{num(g.tokensOut)}</Text> : <Text dimColor>–</Text>}
-          </Text>
-        )}
+        {items.flatMap((item, i) => (i === 0 ? [item] : [gap(`ug-g${i}`), item]))}
       </Box>
     )
-    const ctx: Limit | undefined = g.context ? { pct: g.context.pct, approx: g.context.estimated } : undefined
+    // The context meter also shows how many tokens the context holds (it was the session board's "ctx 305K" chip).
+    const ctx: Limit | undefined = g.context ? { pct: g.context.pct, approx: g.context.estimated, tokens: g.context.tokens } : undefined
     const row2 = (
       <Box key="ug-row2" flexWrap="wrap">
         {meter(ui, 'ug-ctx', isNarrow ? 'ctx' : 'context', ctx, undefined)}

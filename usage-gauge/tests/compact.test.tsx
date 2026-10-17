@@ -72,7 +72,7 @@ function bottom(on: On, r: Rig) {
   })
 }
 
-/** The context meter of the two rows under the prompt, e.g. "context ▰▰▱▱▱▱▱▱▱▱ ~23%". */
+/** The context meter of the two rows under the prompt, e.g. "context ▰▰▱▱▱▱▱▱▱▱ ~23% ~46k". */
 async function meter($: Engine, surface: 'terminal' | 'desktop' = 'terminal') {
   const band = await $.ui.mount({ plugin: 'usage-gauge', surface, component: 'PromptHint', props: HINT })
   const row = (await band.find({ key: 'ug-row2' }))?.text.replace(/\s+/g, ' ').trim() ?? ''
@@ -87,7 +87,7 @@ async function compact($: Engine, e: Record<string, unknown> = {}): Promise<{ me
 const start = ($: Engine, surface: 'terminal' | 'desktop' = 'terminal') => $.session.start({ cwd: '/home/me/vault', surface, isInteractive: true })
 
 /** 46,000 after the compaction + 20,000 overhead = 66,000 of 200,000 */
-const EST = 'context ▰▰▰▱▱▱▱▱▱▱ ~33%'
+const EST = 'context ▰▰▰▱▱▱▱▱▱▱ ~33% ~66k'
 const DASH = 'context ▱▱▱▱▱▱▱▱▱▱ –'
 
 test('no figure from the engine and no compaction (a /clear): the old figure is not kept', async ($, on) => {
@@ -95,7 +95,7 @@ test('no figure from the engine and no compaction (a /clear): the old figure is 
   const r = rig()
   bottom(on, r)
   await start($)
-  expect(await meter($)).toBe('context ▰▰▰▰▰▰▰▰▰▱ 95%')
+  expect(await meter($)).toBe('context ▰▰▰▰▰▰▰▰▰▱ 95% 190k')
   r.context = NONE
   await clock.advance(15_000)
   expect(await meter($)).toBe(DASH)
@@ -107,7 +107,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const r = rig()
     bottom(on, r)
     await start($, surface)
-    expect(await meter($, surface)).toBe('context ▰▰▰▰▰▰▰▰▰▱ 95%')
+    expect(await meter($, surface)).toBe('context ▰▰▰▰▰▰▰▰▰▱ 95% 190k')
     r.context = NONE // the engine has no figure until the next response
     const result = await compact($)
     // the compaction itself reaches the engine as the bottom answered it
@@ -174,10 +174,10 @@ test('the engine\'s real figure replaces the estimate: no ~', async ($, on) => {
     answer: 'ok', durationMs: 1000, isAborted: false, turnId: 't1', reason: 'answer',
     usage: { model: 'claude-opus-4-1-20250805', input_tokens: 1_000, output_tokens: 10, cache_read_input_tokens: 68_000, cache_creation_input_tokens: 1_000 },
   })
-  expect(await meter($)).toBe('context ▰▰▰▱▱▱▱▱▱▱ 35%')
+  expect(await meter($)).toBe('context ▰▰▰▱▱▱▱▱▱▱ 35% 70k')
   // and the estimate does not come back at the next refresh
   await clock.advance(15_000)
-  expect(await meter($)).toBe('context ▰▰▰▱▱▱▱▱▱▱ 35%')
+  expect(await meter($)).toBe('context ▰▰▰▱▱▱▱▱▱▱ 35% 70k')
 })
 
 test('a real figure after the estimate is not mistaken for an estimate once the engine goes quiet again', async ($, on) => {
@@ -189,7 +189,7 @@ test('a real figure after the estimate is not mistaken for an estimate once the 
   await compact($)
   r.context = { tokens: 70_000, window: WINDOW, percent: 35 }
   await clock.advance(15_000)
-  expect(await meter($)).toBe('context ▰▰▰▱▱▱▱▱▱▱ 35%')
+  expect(await meter($)).toBe('context ▰▰▰▱▱▱▱▱▱▱ 35% 70k')
   // a /clear: no figure and no compaction. The 35% must not come back as the old figure, and no ~ is invented.
   r.context = NONE
   await clock.advance(15_000)
@@ -212,7 +212,7 @@ test('the numbers of the 2026-10-13 compactions: 28,781 after + 98,000 overhead 
   await start($)
   r.context = { window: 1_000_000 }
   await compact($)
-  expect(await meter($)).toBe('context ▰▱▱▱▱▱▱▱▱▱ ~13%')
+  expect(await meter($)).toBe('context ▰▱▱▱▱▱▱▱▱▱ ~13% ~127k')
 })
 
 // ── a dash when a part is missing ─────────────────────────────────────────────
@@ -311,7 +311,7 @@ test('a sum above the window stops at 100%', async ($, on) => {
   await start($)
   r.context = NONE
   await compact($)
-  expect(await meter($)).toBe('context ▰▰▰▰▰▰▰▰▰▰ ~100%')
+  expect(await meter($)).toBe('context ▰▰▰▰▰▰▰▰▰▰ ~100% ~270k')
 })
 
 test('the estimate is rounded to the nearest whole percent', async ($, on) => {
@@ -321,7 +321,7 @@ test('the estimate is rounded to the nearest whole percent', async ($, on) => {
   await start($)
   r.context = NONE
   await compact($)
-  expect(await meter($)).toBe('context ▰▱▱▱▱▱▱▱▱▱ ~12%')
+  expect(await meter($)).toBe('context ▰▱▱▱▱▱▱▱▱▱ ~12% ~24k')
 })
 
 test('the window comes from the session, not a fixed 200K', async ($, on) => {
@@ -331,7 +331,7 @@ test('the window comes from the session, not a fixed 200K', async ($, on) => {
   await start($)
   r.context = { window: 1_000_000 } // 66,000 of 1,000,000 = 6.6%
   await compact($)
-  expect(await meter($)).toBe('context ▱▱▱▱▱▱▱▱▱▱ ~7%')
+  expect(await meter($)).toBe('context ▱▱▱▱▱▱▱▱▱▱ ~7% ~66k')
 })
 
 // ── which compactions count ──────────────────────────────────────────────────
@@ -355,7 +355,7 @@ test('a compaction that is skipped changes nothing: the figure stays', async ($,
   await start($)
   const result = await compact($)
   expect(result.skip).toBe('off')
-  expect(await meter($)).toBe('context ▰▰▰▰▰▰▰▰▰▱ 95%')
+  expect(await meter($)).toBe('context ▰▰▰▰▰▰▰▰▰▱ 95% 190k')
 })
 
 test('a precompute installs nothing: the figure stays', async ($, on) => {
@@ -364,7 +364,7 @@ test('a precompute installs nothing: the figure stays', async ($, on) => {
   bottom(on, r)
   await start($)
   await compact($, { trigger: 'precompute' })
-  expect(await meter($)).toBe('context ▰▰▰▰▰▰▰▰▰▱ 95%')
+  expect(await meter($)).toBe('context ▰▰▰▰▰▰▰▰▰▱ 95% 190k')
 })
 
 test('a subagent\'s own compaction is not this session\'s: the figure stays', async ($, on) => {
@@ -373,7 +373,7 @@ test('a subagent\'s own compaction is not this session\'s: the figure stays', as
   bottom(on, r)
   await start($)
   await compact($, { trigger: 'auto', agentId: 'a9' })
-  expect(await meter($)).toBe('context ▰▰▰▰▰▰▰▰▰▱ 95%')
+  expect(await meter($)).toBe('context ▰▰▰▰▰▰▰▰▰▱ 95% 190k')
 })
 
 test('a real figure of 0% is drawn as 0%, not as a dash', async ($, on) => {
@@ -381,5 +381,5 @@ test('a real figure of 0% is drawn as 0%, not as a dash', async ($, on) => {
   const r = rig({ context: { tokens: 3_000, window: 1_000_000, percent: 0 }, after: undefined })
   bottom(on, r)
   await start($)
-  expect(await meter($)).toBe('context ▱▱▱▱▱▱▱▱▱▱ 0%')
+  expect(await meter($)).toBe('context ▱▱▱▱▱▱▱▱▱▱ 0% 3.0k')
 })
