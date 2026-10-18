@@ -4,6 +4,7 @@ import type { EngineInterface, ModelCompleteResult, Register, RenderElement } fr
 import type { DraftedCommand, GrammarCard } from '../types'
 import { EFFORT, MAX_TOKENS, MODEL, SYSTEM, TIMEOUT_MS, eligible, frame, label, parseCheck, review, rows } from './grammar'
 import type { Check, Seg } from './grammar'
+import { GOAL_LIMIT, lintGoal, lintLoop, userOnlyName } from './lint'
 
 // `++` makes no extra model call: each feature attaches a short instruction to
 // your own prompt, and the session's Claude, with everything it already has
@@ -24,7 +25,9 @@ type Kind = 'brief' | 'goal' | 'loop'
 // Guided rounds can run over several turns when answers come back as prompts.
 const DRAFT_TURNS = 6
 // /goal accepts up to 4,000 characters; a good goal or loop is far shorter.
-const MAX = 400
+// 600 leaves room for the cap clause (about 230 characters) and a quoted baseline on top of the
+// end state: at 500, a third of tested drafts ran over, and the clipped ones dropped part of the cap.
+const MAX = 600
 
 /** The labelled parts each kind of draft should have: label, icon, and whether it is required. */
 const PARTS: Record<Kind, { label: string; icon: string; required: boolean; missing: string }[]> = {
@@ -38,7 +41,7 @@ const PARTS: Record<Kind, { label: string; icon: string; required: boolean; miss
     { label: 'end', icon: '🎯', required: true, missing: 'no measurable end state' },
     { label: 'check', icon: '✅', required: true, missing: 'no check that proves it' },
     { label: 'keep', icon: '🚧', required: false, missing: '' },
-    { label: 'limit', icon: '⏱', required: true, missing: 'no turn or time limit' },
+    { label: 'limit', icon: '⏱', required: true, missing: 'no printed turn cap' },
   ],
   loop: [
     { label: 'every', icon: '⏱', required: false, missing: '' },
@@ -83,28 +86,44 @@ constraints: … (or "none")
 done: … (how we will know it is done)
 Do not start the work in this turn; wait for my go-ahead or my corrections.`
 
-const GOAL = `Help me turn my request above into a /goal condition. Do not start the work.
-1. ${GUIDE('/goal', 'the end state, the check that proves it, the scope, what must not break, and a turn limit')}
-2. Then write ONE condition, under ${MAX} characters, with:
-   - one measurable end state (a test result, an exit code, a file count, an empty list);
-   - the check that proves it, as something your own output will show (for example "npm test exits 0"), because the goal's judge only reads the conversation and runs nothing itself;
-   - any constraint that must not break on the way;
-   - a bound, such as "or stop after 15 turns".
-3. Reply with one line saying what the goal does, then the condition alone in a fenced code block tagged goal, then its parts in a fenced code block tagged parts, one line each:
+/**
+ * The goal's cap, as tested on Claude Code 2.1.302 (2026-10-18). Nothing counts turns for Claude
+ * or the judge, so Claude prints the count itself. It is an either/or on purpose: written as
+ * "… or done when a reply ends GOAL CAPPED", the judge kept demanding the end state and accepted
+ * the cap in 1 of 3 runs; written as below it accepted the cap in 4 of 4 runs that reached it,
+ * each time right after the K-th message, and refused an early fake cap (2 of 2).
+ */
+const CAP = (k: string) =>
+  `or (B) after ${k} "Stop hook feedback" messages, a reply ends "GOAL CAPPED: <what is left>". Either one alone ends the goal. End each reply with "Goal turn N/${k}" (N = those messages + 1).`
+
+/** What part (A) of a goal must hold, shared by ++goal and a loop request that is really a goal. */
+const GOAL_RULES = `In (A): one end state that command output shows (an exit code, a count, an empty list), the check run after the last edit with its output quoted in the reply, and each constraint with the output that shows it ("git diff --stat lists only src/auth"). A before/after constraint ("count not below the start", "PID unchanged") saves its start value to a file first, and the final reply quotes that file beside the new value: the judge may not see early messages. A check script you write must be shown failing once on a deliberately broken input. When my request asks for quality or no gaps, file names or heading counts do not show it: add a check that does (a test, a read-back, or a fresh reviewer subagent's quoted verdict). No taste words ("production-ready", "looks good") and no clock deadline: the judge has no clock, only times printed in the chat. Copy the (B) sentence word for word, with your number in place of both Ks; leave <what is left> and N as they are.`
+
+/** The reply shape the card reads for a goal. */
+const GOAL_REPLY = `the condition alone in a fenced code block tagged goal, then its parts in a fenced code block tagged parts, one line each:
 end: …
 check: …
 keep: … (or "none")
-limit: …`
+limit: … (K, the cap)`
+
+const GOAL = `Help me turn my request above into a /goal condition. Do not start the work.
+1. ${GUIDE('/goal', 'the end state, the check that proves it, what must not break, and K, how many "Stop hook feedback" messages (goal checks) to allow before it stops')} Among your questions, offer to run the check once now to see it fail; recommend that only when it is local, writes nothing and takes under 30 seconds.
+2. Then write ONE condition, under ${MAX} characters. Its judge is a small model that runs nothing and reads only this conversation (in a long one, only the newest messages), so write it in exactly this shape:
+Done when either: (A) <end state>; ${CAP('K')}
+${GOAL_RULES}
+3. Reply with one line saying what the goal does, then ${GOAL_REPLY}`
 
 const LOOP = `Help me turn my request above into a /loop command. Do not start the work.
-1. If this is really "keep working until a condition holds", say /goal fits better and draft a goal instead (blocks tagged goal and parts, as for a goal: end, check, keep, limit). If it is "react when a log line or process output appears", say so: a Monitor fits better.
+1. Route it first, in one line, when another tool fits better. "Keep working until X holds" is a /goal: ask me for K with your other questions, then draft a goal instead, under ${MAX} characters, shaped "Done when either: (A) <end state>; ${CAP('K')}". ${GOAL_RULES} Reply with one line saying what the goal does, then ${GOAL_REPLY}
+"React when a log line, file or output appears" is a Monitor: give the one sentence I can type to start it, then draft the /loop as a fallback. Laptop off, or longer than 7 days, is /schedule, but only when the work needs no local files, browser or GPU: a routine runs in the cloud on a fresh clone.
 2. ${GUIDE('/loop', 'what to check, how often (or self-paced), what to do with each result, when to stop, and what must never be touched')}
-3. Then write ONE /loop line, under ${MAX} characters:
-   - an interval first (like 5m, 30m, 2h) only when the timing is known; leave it out to let Claude pace itself;
-   - what to check each time, written so it is safe to repeat;
-   - what to do for each likely result, and to report in one line when nothing changed;
-   - when to stop: "when X, say so and stop the loop";
-   - no irreversible step (push, delete, send) unless my request asked for it.
+3. Then write ONE /loop line, under ${MAX} characters. The loop skill already runs it once now, paces it, and reports when it stops; add only what it lacks:
+   - an interval first (5m, 30m, 2h) only for work on a clock (daily, hourly); for "until X happens" leave it out (self-paced), since a fixed interval runs until cancelled or 7 days;
+   - what to check each pass, safe to repeat; for a list, one item per pass, tracked in a state file read first, 3 tries then mark it blocked;
+   - what to do for each likely result, and "if nothing changed, say so in one line";
+   - when to stop, as something the check shows;
+   - "never push, delete or send" unless my request asked for it;
+   - no user-only skill (disable-model-invocation: true): a loop pass gets it as plain text. If a step needs one, do not rebuild its steps: say in one line that I must type it myself, and leave that step out.
 4. Reply with one line saying what the loop does, then everything after "/loop " alone in a fenced code block tagged loop, then its parts in a fenced code block tagged parts, one line each:
 every: … (or "self-paced")
 check: …
@@ -139,7 +158,8 @@ function findDraft(answer: string): DraftedCommand | null {
   for (const kind of ['goal', 'loop'] as const) {
     const body = block(answer, kind)
     if (body !== null) {
-      return { kind, args: body.replace(/\s+/g, ' ').slice(0, 4000), parts: parseParts(block(answer, 'parts')) }
+      // No cut at /goal's limit: a cut can drop the cap clause at the end. The card flags it instead.
+      return { kind, args: body.replace(/\s+/g, ' '), parts: parseParts(block(answer, 'parts')) }
     }
   }
   const brief = block(answer, 'brief')
@@ -174,6 +194,64 @@ const SEG_STYLE: Record<Seg['kind'], { color?: string; bold?: boolean; strikethr
   del: { color: 'red', strikethrough: true },
   ins: { color: 'green', bold: true },
   held: { color: 'yellow', underline: true },
+}
+
+/** Skills a loop pass cannot run, read once per load from the project's and your own skill folders. */
+let userOnly: string[] | null = null
+
+/**
+ * The names of the skills marked `disable-model-invocation: true`: a scheduled loop pass gets
+ * those as plain text. Read when `++loop` is first used, not at session start.
+ */
+async function userOnlySkills($: EngineInterface): Promise<string[]> {
+  if (userOnly !== null) return userOnly
+  const root = await $.session.root().catch(() => null)
+  const home =
+    (await $.env.get('USERPROFILE').catch(() => undefined)) ?? (await $.env.get('HOME').catch(() => undefined)) ?? null
+  const names = new Set<string>()
+  let listed = 0
+  // the same folder once, however its path is spelled (the session can run in the home folder)
+  const bases: string[] = []
+  for (const b of [root, home]) {
+    const clean = b?.replace(/\\/g, '/').replace(/\/+$/, '')
+    if (clean && !bases.some(x => x.toLowerCase() === clean.toLowerCase())) bases.push(clean)
+  }
+  for (const base of bases) {
+    const dir = `${base}/.claude/skills`
+    const entries = await $.fs.list(dir).catch(() => [])
+    listed += entries.length
+    // a folder, or a junction (which lists as `other`)
+    const found = await Promise.all(
+      entries
+        .filter(e => e.kind !== 'file')
+        .map(async e => {
+          const md = await $.fs.read(`${dir}/${e.name}/SKILL.md`).catch(() => null)
+          return typeof md === 'string' ? userOnlyName(md, e.name) : null
+        }),
+    )
+    for (const n of found) if (n !== null) names.add(n)
+  }
+  const result = [...names].sort()
+  // nothing could be listed: try again next time rather than remember "none"
+  if (listed > 0) userOnly = result
+  return result
+}
+
+/**
+ * What the prompt box holds: `free` (empty, or only `mine`, text this mod put there, so a fill
+ * wipes nothing of yours), `yours` (your own words), or `unknown` (it could not be read).
+ */
+async function boxState($: EngineInterface, mine?: string): Promise<'free' | 'yours' | 'unknown'> {
+  const box = await $.prompt.read().catch(() => null)
+  if (box === null) return 'unknown'
+  const text = box.text.trim()
+  return text === '' || (mine !== undefined && text === mine.trim()) ? 'free' : 'yours'
+}
+
+/** Puts a /clarify, /goalify or /loopify request in the prompt box as its prefix form, never over your own words. */
+async function fillCommand($: EngineInterface, text: string) {
+  if ((await boxState($)) === 'free') await $.prompt.fill({ text, mode: 'replace' }).catch(() => undefined)
+  else $.ui.toast(`Your prompt box has text: type ${text.length > 40 ? `${text.slice(0, 39)}…` : text} yourself`)
 }
 
 /** Which check is current: a result from an older one is dropped. */
@@ -247,12 +325,12 @@ export const register: Register = (on, options) => {
     })
     await $.command.register({
       name: 'goalify',
-      description: 'Check a request for gaps, then draft a short, checkable /goal (same as ++goal)',
+      description: 'Check a request for gaps, then draft a short, checkable /goal (same as ++goal or ++g)',
       argumentHint: '<request>',
     })
     await $.command.register({
       name: 'loopify',
-      description: 'Check a request for gaps, then draft a safe, self-stopping /loop (same as ++loop)',
+      description: 'Check a request for gaps, then draft a safe, self-stopping /loop (same as ++loop or ++l)',
       argumentHint: '<request>',
     })
     return next(e)
@@ -276,24 +354,38 @@ export const register: Register = (on, options) => {
       if (e.origin.kind === 'composer' && (await read($, ready))?.kind === 'brief') await update($, ready, () => null)
       return next(e)
     }
-    const m = text.match(/^\+\+\s*(goal|loop)\b[:\s]*/i)
-    const kind: Kind = m ? (m[1]!.toLowerCase() as 'goal' | 'loop') : 'brief'
+    // "++goal" / "++loop", or the short "++g" / "++l": the letter right after "++" and then a space,
+    // so "++ go ahead" and "++loose ideas" stay ordinary briefs.
+    const m = text.match(/^\+\+(?:\s*(goal|loop)\b[:\s]*|([gl])(?:\s+|$))/i)
+    const word = (m?.[1] ?? m?.[2])?.toLowerCase()
+    const kind: Kind = word === undefined ? 'brief' : word.startsWith('g') ? 'goal' : 'loop'
     const request = text.slice(m ? m[0].length : 2).trim()
     if (request === '') return next(e)
     await update($, drafting, () => ({ kind, turnsLeft: DRAFT_TURNS }))
     await update($, ready, () => null)
-    return next({ ...e, text: request, context: [...(e.context ?? []), INSTRUCTION[kind]] })
+    let instruction: string = INSTRUCTION[kind]
+    if (kind !== 'brief') {
+      const names = await userOnlySkills($).catch(() => [])
+      if (names.length > 0) {
+        instruction += `\nUser-only skills here (Claude cannot call them, and a loop pass gets them as plain text): ${names.map(n => `/${n}`).join(', ')}. If a step needs one, do not rebuild its steps: say in one line that I must type it myself, and leave that step out.`
+      }
+    }
+    return next({ ...e, text: request, context: [...(e.context ?? []), instruction] })
   }).catch(($, e, next) => next(e)) // never block your prompt
 
-  for (const [name, prefix, says] of [
-    ['clarify', '++', 'Checking your request for gaps…'],
-    ['goalify', '++goal', 'Walking you through each part of the /goal, then drafting it…'],
-    ['loopify', '++loop', 'Walking you through each part of the /loop, then drafting it…'],
+  for (const [name, prefix, also] of [
+    ['clarify', '++', ''],
+    ['goalify', '++goal', ' (or ++g)'],
+    ['loopify', '++loop', ' (or ++l)'],
   ] as const) {
     on('command.run', { command: name }, async ($, e) => {
-      if (e.args.trim() === '') return { text: `Usage: /${name} <request>, or start a prompt with ${prefix}` }
-      void $.prompt.submit({ text: `${prefix} ${e.args.trim()}`, asUser: true })
-      return { text: says }
+      const request = e.args.trim()
+      if (request === '') return { text: `Usage: /${name} <request>, or start a prompt with ${prefix}${also}` }
+      // A command cannot submit a prompt (it would wait on its own turn), and a prompt this mod
+      // submits skips this mod's own hook, so the instruction would never attach. So the request
+      // goes into the prompt box as "++goal …", just after the box clears, and you press Enter.
+      $.clock.after(50, () => void fillCommand($, `${prefix} ${request}`))
+      return { text: `"${prefix} ${request.length > 40 ? `${request.slice(0, 39)}…` : request}" goes in the prompt box: press Enter to start` }
     })
   }
 
@@ -314,13 +406,22 @@ export const register: Register = (on, options) => {
     const found = findDraft(e.answer)
     if (found !== null) {
       await update($, drafting, () => null)
+      // the card checks a goal or loop against the user-only skills: know them before it draws
+      if (found.kind !== 'brief' && userOnly === null) await userOnlySkills($).catch(() => [])
       await update($, ready, () => found)
       if (found.kind !== 'brief') {
-        const filled = await $.prompt.fill({ text: `/${found.kind} ${found.args}`, mode: 'replace' }).catch(() => undefined)
+        // Only into an empty box: what you typed while Claude drafted stays.
+        const box = await boxState($)
+        const filled =
+          box === 'free'
+            ? await $.prompt.fill({ text: `/${found.kind} ${found.args}`, mode: 'replace' }).catch(() => undefined)
+            : undefined
         $.ui.toast(
           filled?.isFilled
             ? `/${found.kind} ready in the prompt box: check it, then Enter`
-            : `/${found.kind} ready above the prompt`,
+            : box === 'yours'
+              ? `/${found.kind} ready above the prompt; your typing was left in the box`
+              : `/${found.kind} ready above the prompt`,
         )
       }
     } else {
@@ -360,11 +461,16 @@ export const register: Register = (on, options) => {
         </Text>,
       )
     }
-    // No labelled parts at all (an older reply): show the text itself.
+    // What the judge or the loop could not use, read from the command text itself.
+    if (kind === 'goal') gaps.push(...lintGoal(r.args, userOnly ?? []))
+    if (kind === 'loop') gaps.push(...lintLoop(r.args, userOnly ?? []))
+    const tooLong = kind === 'goal' && r.args.length > GOAL_LIMIT
+    const cmd = `/${kind} ${r.args}`
+    // No labelled parts at all (an older reply): show the text itself, at most a few lines of it.
     if (rows.length === 0) {
       rows.push(
         <Text key="pe-row-text" wrap="wrap">
-          {r.args}
+          {r.args.length > 600 ? `${r.args.slice(0, 599)}…` : r.args}
         </Text>,
       )
     }
@@ -396,26 +502,50 @@ export const register: Register = (on, options) => {
         </Box>
       ) : (
         <Box key="pe-actions" marginTop={1}>
-          <Button
-            key="pe-start"
-            label={kind === 'goal' ? '▶ Start goal' : '▶ Start loop'}
-            variant="primary"
-            onPress={async () => {
-              await close()
-              await $.prompt.fill({ text: '', mode: 'replace' }).catch(() => undefined)
-              await $.command.run({ command: kind, args: r.args })
-            }}
-          />
-          <Text>  </Text>
+          {!tooLong && (
+            <Button
+              key="pe-start"
+              label={kind === 'goal' ? '▶ Start goal' : '▶ Start loop'}
+              variant="primary"
+              onPress={async () => {
+                const box = await boxState($, cmd)
+                // you edited the draft in the box: that version is the one to start, with Enter
+                if (box === 'yours') {
+                  const typed = (await $.prompt.read().catch(() => null))?.text.trim() ?? ''
+                  if (typed.startsWith(`/${kind} `)) return void $.ui.toast(`Your edited /${kind} is in the box: press Enter to start it`)
+                }
+                await close()
+                // clear the box only when it holds this draft, never your own words
+                if (box === 'free') await $.prompt.fill({ text: '', mode: 'replace' }).catch(() => undefined)
+                await $.command.run({ command: kind, args: r.args }).catch(async () => {
+                  await update($, ready, () => r)
+                  $.ui.toast(`Could not start the /${kind}: the draft is back above the prompt`)
+                })
+              }}
+            />
+          )}
+          {!tooLong && <Text>  </Text>}
           <Button
             key="pe-edit"
             label="✎ Edit in box"
-            onPress={() => $.prompt.fill({ text: `/${kind} ${r.args}`, mode: 'replace' }).catch(() => undefined)}
+            onPress={async () => {
+              const box = await boxState($, cmd)
+              if (box === 'free') await $.prompt.fill({ text: cmd, mode: 'replace' }).catch(() => undefined)
+              else if (box === 'yours') $.ui.toast('Your prompt box has text: clear it, then press ✎ Edit again')
+              else $.ui.toast('Could not read the prompt box: copy the draft from the card')
+            }}
           />
           <Text>  </Text>
           <Button key="pe-dismiss" label="Dismiss" role="dismiss" onPress={close} />
         </Box>
       )
+    // What every goal or loop card should say once, dim: how the command really behaves.
+    const footer =
+      kind === 'goal'
+        ? 'the judge reads only this chat · a reached cap also counts as achieved'
+        : kind === 'loop'
+          ? 'runs only while this session is open and idle · ends after 7 days'
+          : null
 
     const mine = (
       <Box key="pe-ready" flexDirection="column" borderStyle="round" borderColor={gaps.length > 0 ? 'yellow' : accent} paddingX={1}>
@@ -427,10 +557,15 @@ export const register: Register = (on, options) => {
         </Box>
         {rows}
         {gaps.map(g => (
-          <Text key={`pe-gap-${g}`} color="yellow">
+          <Text key={`pe-gap-${g}`} color="yellow" wrap="wrap">
             ⚠ {g}
           </Text>
         ))}
+        {footer !== null && (
+          <Text key="pe-footer" dimColor wrap="wrap">
+            {footer}
+          </Text>
+        )}
         {actions}
       </Box>
     )

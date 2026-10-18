@@ -1,7 +1,15 @@
 {
   "name": "image-open",
-  "version": "0.1.1",
-  "description": "Paste an image with Alt+V and an [open] button appears above the prompt for each [Image #N]: it opens the full-size picture in your default viewer. No thumbnail.",
+  "version": "0.2.0",
+  "description": "Paste an image and a tile appears above the prompt for each [Image #N]: a picture of Claude Code's own copy of the paste, and an [open] button that shows it full size in your default viewer. Real pixels in Ghostty or kitty; coloured half-blocks in Windows Terminal, Terminal.app and iTerm2. Windows and macOS.",
   "author": { "name": "Richard" },
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "thumbnails": {
+      "type": "boolean",
+      "title": "Thumbnails",
+      "description": "Draw a small half-block picture of each pasted image above the prompt. Off: only the label and the [open] button.",
+      "default": true
+    }
+  }
 }
