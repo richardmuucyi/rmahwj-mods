@@ -327,8 +327,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(own(files).status).toBe('working')
     await endTurn($, 't1', [{ id: 'b1', type: 'shell', description: 'Render on the GPU' }])
     expect(own(files).status).toBe('background')
-    // Nothing elsewhere needs you or replied: no strip, so no row is taken.
-    expect(await strip($, surface)).toBe('')
+    // Nothing elsewhere needs you or replied, but the job alone opens the strip (since 0.29.0; before, no strip).
+    expect(await strip($, surface)).toBe('current ◌ Waiting on a background task ◈ 1 job sessions ›')
     expect(own(files).tasks).toEqual(['shell: Render on the GPU'])
 
     // The job reports back: a turn of its own, then nothing is left in flight.

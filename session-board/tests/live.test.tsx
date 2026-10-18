@@ -223,7 +223,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     // The card others read carries the task counts.
     const card = JSON.parse(files.get('/home/me/.claude/session-board/me.json') ?? '{}') as { progress?: unknown; v?: number }
     expect(card.progress).toEqual({ done: 1, total: 3 })
-    expect(card.v).toBe(3)
+    // 4 since 0.29.0: the card carries its background work with ids and start times (`bg`).
+    expect(card.v).toBe(4)
 
     // Next turn: its own files list; ended subagents drop off.
     await $.turn.start({ text: 'More', turnId: 't2' })
@@ -507,10 +508,11 @@ for (const surface of ['terminal', 'desktop'] as const) {
     })
     await clock.advance(5_000)
     expect(await strip()).toBe('current ◌ Waiting on 2 background tasks ◈ 1 job · 1 agent sessions ›')
-    // The agent ends: nothing but a shell is left, and a shell alone opens no strip.
+    // The agent ends: it leaves the count at once, and the shell left keeps the strip open (since 0.29.0: a lone job
+    // opens it; before, it opened no strip).
     await $.classic.SubagentStop({ agent_id: 'a1', agent_type: 'Explore', stop_hook_active: false } as never)
     await clock.advance(5_000)
-    expect(await strip()).toBe('')
+    expect(await strip()).toBe('current ◌ Waiting on a background task ◈ 1 job sessions ›')
   })
 
   test(`the ◈ chip counts jobs, agents, monitors and wake-ups apart; initials when narrow (${surface})`, async ($, on) => {
@@ -554,6 +556,145 @@ for (const surface of ['terminal', 'desktop'] as const) {
     } as never)
     await clock.advance(5_000)
     expect(await chip(BAND.bodyColumns)).toBe('◈ 1 agent · 1 task')
+  })
+
+  // ── 0.29.0: background work while a turn runs, how long each has run, and a reload that keeps the engine's ids ──
+
+  /** The strip as text, and its ◈ chip alone, at a width and a working state. */
+  const band = async ($: Engine, bodyColumns: number, isWorking: boolean) => {
+    const m = await $.ui.mount({ plugin: 'session-board', surface, component: 'AbovePrompt', props: { ...BAND, bodyColumns, isWorking } })
+    const drawn = await m.find({ key: 'sb-strip' })
+    await m.unmount()
+    return {
+      strip: drawn?.text.replace(/\s+/g, ' ').trim() ?? '',
+      chip: chipsOf(drawn).map(c => c[1].trim()).find(x => x.startsWith('◈')) ?? '',
+    }
+  }
+  const report = (id: string) => `<task-notification><task-id>${id}</task-id><status>completed</status></task-notification>`
+  const shellResult = (id: string) => ({ result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: id } })
+
+  test(`a lone background job opens the strip while the turn runs; the wide chip puts the oldest task's time beside its kind from a minute (${surface})`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    const files = new Map<string, string>()
+    const repo: Repo = { isRepo: false, status: [], numstat: [], runs: [] }
+    bottom(on, files, repo)
+    on('tool.call', (_$, e) => (e.tool === 'Bash' ? shellResult('b1') : { result: 'ok' }))
+    await $.session.start({ cwd: '/home/me/vault', surface, isInteractive: true })
+    await $.turn.start({ text: 'Go', turnId: 't1' })
+    await clock.advance(5_000)
+    expect((await band($, BAND.bodyColumns, true)).strip).toBe('')
+    // A background shell mid-turn: the strip opens for it at once (0.28.0 counted only agents while a turn ran).
+    await $.tool.call({ tool: 'Bash', command: 'python render.py', description: 'Render on the GPU', run_in_background: true })
+    await clock.advance(5_000)
+    expect((await band($, BAND.bodyColumns, true)).strip).toBe('current ◔ Working ◈ 1 job sessions ›')
+    // Past a minute the wide chip gives the time in brackets beside the kind; the narrow one stays counts only ("1m"
+    // there is a monitor).
+    await clock.advance(12 * 60_000)
+    expect((await band($, BAND.bodyColumns, true)).chip).toBe('◈ 1 job (12m)')
+    expect((await band($, 50, true)).chip).toBe('◈1j')
+    // The turn ends with it running: the Stop list keeps the start its own call gave it (exact, so no "≥").
+    await $.classic.Stop({ stop_hook_active: false, background_tasks: [{ id: 'b1', type: 'shell', status: 'running', description: 'Render on the GPU' }], session_crons: [] })
+    await $.turn.complete({ answer: 'ok', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
+    await clock.advance(5_000)
+    expect((await band($, BAND.bodyColumns, false)).strip).toBe('current ◌ Waiting on a background task ◈ 1 job (12m) sessions ›')
+    // Its report: off at once, and the strip closes.
+    await $.prompt.submit({ text: report('b1'), origin: { kind: 'task-notification' }, wait: false })
+    await clock.advance(5_000)
+    expect((await band($, BAND.bodyColumns, false)).strip).toBe('')
+    // A one-shot wake-up alone waits; it opens no strip.
+    await $.turn.start({ text: 'Later', turnId: 't2' })
+    await $.classic.Stop({ stop_hook_active: false, background_tasks: [], session_crons: [{ id: 'c1', prompt: 'check the render', recurring: false }] } as never)
+    await $.turn.complete({ answer: 'ok', durationMs: 10, isAborted: false, turnId: 't2', reason: 'answer' })
+    await clock.advance(5_000)
+    expect((await band($, BAND.bodyColumns, false)).strip).toBe('')
+    // Ten minutes on, a new job beside the old wake-up: the wake-up waits, so the time timed is the job's.
+    await clock.advance(10 * 60_000)
+    await $.turn.start({ text: 'Again', turnId: 't3' })
+    await $.tool.call({ tool: 'Bash', command: 'python render.py', description: 'Render on the GPU', run_in_background: true })
+    await clock.advance(2 * 60_000)
+    expect((await band($, BAND.bodyColumns, true)).chip).toBe('◈ 1 job (2m) · 1 wake-up')
+  })
+
+  test(`the panel lists each background job, monitor and wake-up with how long it has run; "≥" where a Stop first listed it (${surface})`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    const files = new Map<string, string>()
+    const repo: Repo = { isRepo: false, status: [], numstat: [], runs: [] }
+    bottom(on, files, repo)
+    on('tool.call', (_$, e) => (e.tool === 'Bash' ? shellResult('b1') : { result: 'ok' }))
+    await $.session.start({ cwd: '/home/me/vault', surface, isInteractive: true })
+    await $.turn.start({ text: 'Go', turnId: 't1' })
+    await clock.advance(5_000)
+    await $.tool.call({ tool: 'Bash', command: 'python render.py', description: 'Render on the GPU', run_in_background: true })
+    await $.agent.spawn({ prompt: 'find', description: 'Scan the vault', subagentType: 'Explore', background: true } as never)
+    await clock.advance(3 * 60_000)
+    // The turn ends: the Stop list also names a monitor and a wake-up the board never saw start.
+    await $.classic.Stop({
+      stop_hook_active: false,
+      background_tasks: [
+        { id: 'b1', type: 'shell', status: 'running', description: 'Render on the GPU' },
+        { id: 'm1', type: 'monitor', status: 'running', description: 'Watch the render log' },
+        { id: 'a1', type: 'subagent', status: 'running', description: 'Scan the vault' },
+      ],
+      session_crons: [{ id: 'c1', prompt: 'check the render', recurring: false }],
+    } as never)
+    await $.turn.complete({ answer: 'ok', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
+    await clock.advance(9 * 60_000)
+    const pane = await $.ui.mount({ plugin: 'session-board', surface, component: 'Pane', requestId: 'session-board', props: PANE_PROPS })
+    let t = await texts(pane)
+    // The agent is under SUBAGENTS, with its own time; BACKGROUND holds the other three, oldest first.
+    expect(t).toContain('BACKGROUND · 3 running')
+    expect(t).toContain('▌ ◔ job Render on the GPU 12m')
+    expect(t).toContain('▌ ◔ monitor Watch the render log ≥9m')
+    expect(t).toContain('▌ ◔ wake-up check the render ≥9m')
+    expect(t.some(x => /SUBAGENTS · 1 running/.test(x))).toBe(true)
+    expect(t.some(x => /◔ (job|monitor|wake-up|agent) Scan the vault/.test(x))).toBe(false)
+    // The card other sessions read gives each task its time too (this session's own card, in THIS FOLDER).
+    expect(t.some(x => /^▌ → shell: Render on the GPU \(12m\) · monitor: Watch/.test(x))).toBe(true)
+    // The job's report: its row goes at once.
+    await $.prompt.submit({ text: report('b1'), origin: { kind: 'task-notification' }, wait: false })
+    await clock.advance(5_000)
+    t = await texts(pane)
+    expect(t).toContain('BACKGROUND · 2 running')
+    expect(t.some(x => /Render on the GPU/.test(x))).toBe(false)
+    await pane.unmount()
+    // The agent ends and a new job starts: the monitor is now the oldest, so its time sits beside it, not the job.
+    await $.classic.SubagentStop({ agent_id: 'a1', agent_type: 'Explore', stop_hook_active: false } as never)
+    await $.tool.call({ tool: 'Bash', command: 'python render.py', description: 'Render again', run_in_background: true })
+    await clock.advance(5_000)
+    expect((await band($, BAND.bodyColumns, false)).chip).toBe('◈ 1 job · 1 monitor (≥9m) · 1 wake-up')
+  })
+
+  test(`a reload keeps each background task's engine id, kind and start, so its report still takes it off (${surface})`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    const files = new Map<string, string>()
+    const repo: Repo = { isRepo: false, status: [], numstat: [], runs: [] }
+    bottom(on, files, repo)
+    on('tool.call', (_$, e) => (e.tool === 'Bash' ? shellResult('b1') : { result: 'ok' }))
+    await $.session.start({ cwd: '/home/me/vault', surface, isInteractive: true })
+    await $.turn.start({ text: 'Go', turnId: 't1' })
+    await $.tool.call({ tool: 'Bash', command: 'python render.py', description: 'Render on the GPU', run_in_background: true })
+    await clock.advance(2 * 60_000)
+    await $.classic.Stop({
+      stop_hook_active: false,
+      background_tasks: [
+        { id: 'b1', type: 'shell', status: 'running', description: 'Render on the GPU' },
+        { id: 'm1', type: 'monitor', status: 'running', description: 'Watch the render log' },
+      ],
+      session_crons: [],
+    })
+    await $.turn.complete({ answer: 'ok', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
+    await clock.advance(5_000)
+    // A reload of the module (session.start fires again): it restores the two from its own card.
+    await $.session.start({ cwd: '/home/me/vault', surface, isInteractive: true })
+    await clock.advance(5_000)
+    const card = () => JSON.parse(files.get('/home/me/.claude/session-board/me.json') ?? '{}') as { tasks?: string[]; bg?: { id: string; kind: string }[] }
+    expect(card().bg?.map(x => [x.id, x.kind])).toEqual([['b1', 'job'], ['m1', 'monitor']])
+    // The job's report names the engine's id: the restored job goes (0.28.0 restored it as "restored-0", which no report names).
+    await $.prompt.submit({ text: report('b1'), origin: { kind: 'task-notification' }, wait: false })
+    await clock.advance(5_000)
+    expect(card().tasks).toEqual(['monitor: Watch the render log'])
+    // Kinds and starts survive too: the chip still counts a monitor, not a bare number.
+    expect((await band($, BAND.bodyColumns, false)).strip).toBe('current ◌ Waiting on a background task ◈ 1 monitor sessions ›')
   })
 
   test(`journal on: log day folders past 30 days are removed, nothing else (${surface})`, { options: { journal: true } }, async ($, on) => {

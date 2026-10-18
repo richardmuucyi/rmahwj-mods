@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderElement } from 'claude-code'
 
-import type { AgentRow, BoardEntry, BoardStatus, FileKind, FileRow, ToolKind, TurnRecord } from '../types'
+import type { AgentRow, BgRow, BoardEntry, BoardStatus, CardTask, FileKind, FileRow, TaskKind, ToolKind, TurnRecord } from '../types'
 import {
   compactionNotes,
   configureGuard,
@@ -44,6 +44,7 @@ const liveAtom = atom({ plugin: 'session-board', key: 'live' } as const, {
   turnFiles: 0,
   bg: 0,
   bgKinds: {},
+  bgRows: [],
 })
 const turnsAtom = atom({ plugin: 'session-board', key: 'turns' } as const, [])
 const journalAtom = atom({ plugin: 'session-board', key: 'journal' } as const, null)
@@ -89,7 +90,7 @@ const COLOR: Record<BoardStatus, string> = {
   closed: 'gray',
 }
 
-const CARD_VERSION = 3
+const CARD_VERSION = 4
 const REFRESH_MS = 5_000
 const HEARTBEAT_MS = 30_000
 // No heartbeat for this long: the session closed, crashed, or the computer slept.
@@ -187,6 +188,13 @@ function parseCard(text: string): BoardEntry | undefined {
     // version, so neither a reload nor another session's card brings it back.
     asked: typeof c.asked === 'string' && !/^<task-notification[\s>]/.test(c.asked.trim()) ? c.asked : '',
     tasks: Array.isArray(c.tasks) ? c.tasks.filter((x): x is string => typeof x === 'string') : undefined,
+    bg: Array.isArray(c.bg)
+      ? c.bg.filter(
+          (x): x is CardTask =>
+            !!x && typeof x.id === 'string' && typeof x.label === 'string' && typeof x.what === 'string' &&
+            typeof x.since === 'number' && typeof x.isExact === 'boolean' && (KIND_ORDER as string[]).includes(x.kind),
+        )
+      : undefined,
     progress:
       c.progress && typeof c.progress.done === 'number' && typeof c.progress.total === 'number' && c.progress.total > 0
         ? { done: c.progress.done, total: c.progress.total }
@@ -264,10 +272,9 @@ function asRecord(raw: unknown): Record<string, unknown> {
   return raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
 }
 
-/** One background task summary (classic Stop's `background_tasks`) as a short label. */
-function taskLabel(t: { type: string; description: string; command?: string; agent_type?: string; name?: string }): string {
-  const what = t.description || t.name || t.command || t.agent_type || 'task'
-  return `${t.type}: ${short(what, 50)}`
+/** What one background task summary (classic Stop's `background_tasks`) is doing, in a few words. */
+function taskWhat(t: { description: string; command?: string; agent_type?: string; name?: string }): string {
+  return short(t.description || t.name || t.command || t.agent_type || 'task', 50)
 }
 
 /** A background task's kind from its type (classic Stop's `background_tasks[].type`): a background shell is a job.
@@ -281,10 +288,13 @@ function kindOf(type: string): TaskKind {
 
 /** A tool call in flight, and the dialog it waits on, if any. */
 type Call = { tool: string; agentId?: string; args: Record<string, unknown>; what: string; asking?: string; at: number }
-/** What kind of background work a task is: the strip's ◈ chip counts each kind apart. */
-type TaskKind = 'job' | 'monitor' | 'agent' | 'wake-up' | 'task'
-/** Background work this session started, tracked from its own tool calls (fallback only). */
-type Tracked = { label: string; kind: TaskKind; agentId?: string }
+/** One piece of background work: its label ("shell: Render on the GPU"), what it does, and when it started. `isExact`
+ *  is false where the start is only the first time a Stop listed it (it may have started earlier: "≥"). */
+type Tracked = { label: string; what: string; kind: TaskKind; agentId?: string; since: number; isExact: boolean }
+/** A Tracked entry from its label's two parts. */
+const task = (prefix: string, what: string, kind: TaskKind, since: number, isExact: boolean, agentId?: string): Tracked => ({
+  label: `${prefix}: ${what}`, what, kind, since, isExact, ...(agentId !== undefined ? { agentId } : {}),
+})
 
 // Module state: a hot reload starts it over, and session.start (which fires
 // again for a reloaded module) restores the card from its own file.
@@ -296,8 +306,11 @@ let mainActivity: string | undefined
 let isTurnRunning = false
 /** The background work the last classic Stop reported, undefined where it reported none. */
 let stopTasks: Map<string, Tracked> | undefined
+/** When that Stop came: work this session's own calls started after it is not in its list yet. */
+let stopAt = 0
 let stopSeenThisTurn = false
-/** Fallback when Stop carries no `background_tasks`: background work seen at our own tool calls. */
+/** Background work seen at our own tool calls: all of it where Stop carries no `background_tasks`, else what started
+ *  since the last Stop (see bgList). */
 const tracked = new Map<string, Tracked>()
 /** Agents whose ended status was seen at one refresh; dropped when seen again at the next. */
 const endedOnce = new Set<string>()
@@ -328,23 +341,54 @@ function derive(t: number): void {
   }
   const p = progressOf()
   const progress = p ? { done: p.done, total: p.total } : undefined
-  if (status === me.status && activity === me.activity && same(tasks, me.tasks) && same(progress, me.progress)) return
+  // Every phase, not only "background": a reload mid-turn restores the jobs, with their real ids and start times, from it.
+  const list = [...bgList()].map(([id, x]) => ({ id, label: x.label, what: x.what, kind: x.kind, since: x.since, isExact: x.isExact }))
+  const bg = list.length > 0 ? list : undefined
+  if (status === me.status && activity === me.activity && same(tasks, me.tasks) && same(progress, me.progress) && same(bg, me.bg)) return
   // A working card keeps the time its turn started; a new tool is no change of state.
   const changedAt = status === me.status ? me.changedAt : t
-  me = { ...me, v: CARD_VERSION, status, activity, tasks, progress, changedAt, seenAt: t }
+  me = { ...me, v: CARD_VERSION, status, activity, tasks, progress, bg, changedAt, seenAt: t }
   isDirty = true
 }
 
+/** The background work in flight now: the last Stop's list, plus what this session's own calls started since that Stop
+ *  (a job started mid-turn is not in any Stop list yet). Without a Stop list, everything its calls started. */
+function bgList(): Map<string, Tracked> {
+  if (!stopTasks) return tracked
+  const out = new Map(stopTasks)
+  for (const [id, x] of tracked) if (!out.has(id) && x.since >= stopAt) out.set(id, x)
+  return out
+}
+
+/** A task that finished (its report came, or its agent stopped): off every list at once. */
+function dropTask(id: string): void {
+  tracked.delete(id)
+  stopTasks?.delete(id)
+  // Nothing left to wait on and no turn running: your turn.
+  if (phase === 'background' && bgList().size === 0) phase = 'replied'
+}
+
 function currentTasks(): string[] {
-  return [...(stopTasks ?? tracked).values()].map(x => x.label)
+  return [...bgList().values()].map(x => x.label)
 }
 
 /** How many of the current background tasks are of each kind, for the ◈ chip. */
 function currentKinds(): Partial<Record<TaskKind, number>> {
   const n: Partial<Record<TaskKind, number>> = {}
-  for (const x of (stopTasks ?? tracked).values()) n[x.kind] = (n[x.kind] ?? 0) + 1
+  for (const x of bgList().values()) n[x.kind] = (n[x.kind] ?? 0) + 1
   return n
 }
+
+/** How long something has run: "45s", "12m", "1h 05m". */
+function elapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${pad2(m % 60)}m`
+}
+
+/** A task's running time, "≥" first where it may have started before the board first saw it. */
+const ranFor = (x: { since: number; isExact: boolean }, t: number) => `${x.isExact ? '' : '≥'}${elapsed(t - x.since)}`
 
 const KIND_ORDER: TaskKind[] = ['job', 'agent', 'monitor', 'wake-up', 'task']
 /** Each kind's word, its plural and its initial for a narrow pane. */
@@ -355,17 +399,27 @@ const KIND_WORD: Record<TaskKind, [string, string, string]> = {
 
 /** The ◈ chip's text: each kind counted apart ("◈ 1 job · 1 monitor"), initials when narrow ("◈1j 1m"). Running
  *  background agents the last Stop did not list count as agents. With no kinds at all (state from before this
- *  version), the plain total, as before. */
-function bgChipText(kinds: Partial<Record<TaskKind, number>> | undefined, total: number, isNarrow: boolean): string {
+ *  version), the plain total, as before. On a wide pane the oldest task's running time sits in brackets beside its
+ *  kind once it reaches a minute ("◈ 2 jobs (12m) · 1 monitor"); a narrow pane has no room, and there "1m" already
+ *  means one monitor. */
+function bgChipText(kinds: Partial<Record<TaskKind, number>> | undefined, total: number, isNarrow: boolean, oldest?: { kind: TaskKind; time: string }): string {
   const k: Partial<Record<TaskKind, number>> = { ...(kinds ?? {}) }
   const known = KIND_ORDER.reduce((sum, x) => sum + (k[x] ?? 0), 0)
   if (known === 0) return isNarrow ? `◈${total}` : `◈ ${total}`
   if (total > known) k.agent = (k.agent ?? 0) + total - known
   const parts = KIND_ORDER.filter(x => (k[x] ?? 0) > 0).map(x => {
     const n = k[x] ?? 0
-    return isNarrow ? `${n}${KIND_WORD[x][2]}` : `${n} ${n === 1 ? KIND_WORD[x][0] : KIND_WORD[x][1]}`
+    if (isNarrow) return `${n}${KIND_WORD[x][2]}`
+    return `${n} ${n === 1 ? KIND_WORD[x][0] : KIND_WORD[x][1]}${oldest?.kind === x ? ` (${oldest.time})` : ''}`
   })
   return isNarrow ? `◈${parts.join(' ')}` : `◈ ${parts.join(' · ')}`
+}
+
+/** The oldest task's kind and running time, for the chip: only once it reaches a minute. A wake-up waits, it does not
+ *  run, so it is never the one timed. */
+function oldestRun(rows: readonly BgRow[], t: number): { kind: TaskKind; time: string } | undefined {
+  const first = rows.filter(r => r.kind !== 'wake-up').sort((a, b) => a.since - b.since)[0]
+  return first && t - first.since >= 60_000 ? { kind: first.kind, time: ranFor(first, t) } : undefined
 }
 
 /** Writes the latest card, one write at a time, in order. Never rejects. */
@@ -393,20 +447,21 @@ async function adoptId($: EngineInterface, t: number): Promise<void> {
   if (id === me.id && retiredId === undefined) return
   if (id === retiredId) return // the new id is not there yet
   if (retiredId === undefined && me.status !== 'closed') {
-    const old = { ...me, status: 'closed' as const, activity: undefined, tasks: undefined, changedAt: t, seenAt: t }
+    const old = { ...me, status: 'closed' as const, activity: undefined, tasks: undefined, bg: undefined, changedAt: t, seenAt: t }
     writing = writing.then(() => $.fs.write(`${dir}/${old.id}.json`, JSON.stringify(old))).catch(() => undefined)
   }
   retiredId = undefined
   phase = 'open'
   mainActivity = undefined
   stopTasks = undefined
+  stopAt = 0
   tracked.clear()
   calls.clear()
   restoredProgress = undefined
   resetLive($)
   sessionStartedAt = t
   pushLive($)
-  me = { ...me, v: CARD_VERSION, id, asked: '', status: 'open', activity: undefined, tasks: undefined, progress: undefined, changedAt: t, seenAt: t }
+  me = { ...me, v: CARD_VERSION, id, asked: '', status: 'open', activity: undefined, tasks: undefined, progress: undefined, bg: undefined, changedAt: t, seenAt: t }
   isDirty = true
 }
 
@@ -427,7 +482,7 @@ async function pruneEndedAgents($: EngineInterface): Promise<void> {
     } else endedOnce.add(key)
   }
   // Everything it waited on has ended and no turn followed: your turn.
-  if (list.size === 0) phase = 'replied'
+  if (bgList().size === 0) phase = 'replied'
 }
 
 // ─── This session's live detail: model, task list, subagents, files changed ───
@@ -726,7 +781,7 @@ async function publishFiles($: EngineInterface): Promise<void> {
 function pushLive($: EngineInterface): void {
   const p = progressOf()
   const order = { running: 0, failed: 1, stopped: 2, done: 3 }
-  const bgAgentsRunning = [...agents.values()].filter(a => a.status === 'running' && a.background === true).length
+  const bg = bgList()
   const fresh = {
     isWorking: isTurnRunning,
     model: ownModel,
@@ -734,10 +789,12 @@ function pushLive($: EngineInterface): void {
     showProgress: p !== null && (p.done < p.total || todoTouched),
     agents: [...agents.values()].sort((a, b) => order[a.status] - order[b.status] || a.startedAt - b.startedAt),
     turnFiles: viewList('turn').length,
-    // The strip's count: the tasks the "Waiting on …" label names (shells and timers too), else the agents still running.
-    bg: phase === 'background' ? currentTasks().length : bgAgentsRunning,
+    // The strip's count: the background work in flight, while a turn runs too (the "Waiting on …" label names the same).
+    bg: bg.size,
     // The same, counted by kind for the ◈ chip (jobs, agents, monitors, wake-ups).
-    bgKinds: phase === 'background' ? currentKinds() : bgAgentsRunning > 0 ? { agent: bgAgentsRunning } : {},
+    bgKinds: currentKinds(),
+    // One row each, oldest first, for the panel's BACKGROUND section and the chip's time.
+    bgRows: [...bg].map(([id, x]) => ({ id, kind: x.kind, what: x.what, since: x.since, isExact: x.isExact })).sort((a, b) => a.since - b.since),
   }
   void update($, liveAtom, v => (same(v, fresh) ? v : fresh)).catch(() => undefined)
   publishTurns($)
@@ -1306,6 +1363,9 @@ function thisSession($: EngineInterface, l: Live, t: number, width: number, ui: 
   const { Box, Text, Button } = ui
   const model = shortModel(l.model)
   const p = l.progress
+  // Background work, oldest first. A background agent the SUBAGENTS section lists is not repeated here.
+  const listed = new Set(l.agents.filter(a => a.status === 'running').map(a => a.id))
+  const bgRows = (l.bgRows ?? []).filter(r => r.kind !== 'agent' || !listed.has(r.id))
   return (
     <Box key="sb-self-block" flexDirection="column" marginTop={1}>
       <Text>
@@ -1328,6 +1388,27 @@ function thisSession($: EngineInterface, l: Live, t: number, width: number, ui: 
           <Text bold>{` ${p.done}/${p.total}`}</Text>
           {p.now && <Text dimColor>{` · ${short(p.now, Math.max(8, width - 26))}`}</Text>}
         </Text>
+      )}
+      {bgRows.length > 0 && (
+        <Box flexDirection="column" marginTop={1}>
+          <Text bold color={COLOR.background}>
+            {`BACKGROUND · ${bgRows.length} running`}
+          </Text>
+          {bgRows.map(r => {
+            // "▌ ◔ job      Render ja_test on Drama 3        12m": the kind in a column, the time at the right edge.
+            const time = ranFor(r, t)
+            const kind = KIND_WORD[r.kind][0].padEnd(8)
+            const room = Math.max(8, width - 4 - kind.length - time.length - 2)
+            const what = short(r.what, room)
+            return (
+              <Text key={`sb-bg-${r.id}`}>
+                <Text color={COLOR.background}>▌ </Text>
+                <Text>{`◔ ${kind} ${what.padEnd(room)} `}</Text>
+                <Text dimColor>{time}</Text>
+              </Text>
+            )
+          })}
+        </Box>
       )}
       {l.agents.length > 0 && (
         <Box flexDirection="column" marginTop={1}>
@@ -1711,7 +1792,7 @@ function recapStrip(r: TurnRecord, review: { open: number; high: number }, ui: K
   )
 }
 
-type Live = { isWorking: boolean; model?: string; progress: { done: number; total: number; now?: string } | null; showProgress: boolean; agents: AgentRow[]; turnFiles: number }
+type Live = { isWorking: boolean; model?: string; progress: { done: number; total: number; now?: string } | null; showProgress: boolean; agents: AgentRow[]; turnFiles: number; bgRows?: BgRow[] }
 
 /** The strip's row for this session while it works: task bar, subagents, files changed. */
 function liveStrip($: EngineInterface, columns: number, l: Live, running: number, ui: Kit): RenderElement {
@@ -1904,14 +1985,27 @@ export const register: Register = (on, options) => {
     if (isLive && prior) {
       // Hot reload mid-session: keep what the card said. A dialog that was open
       // stays shown until the next tool call in the main loop settles.
+      // The background work it held, under the ids the engine gave it, so each one's report still takes it off; its
+      // kind and start time as they were. A card from before 0.29.0 has labels only: their kind from the label, their
+      // start no later than the card's last change.
+      const restoredTasks = (): Map<string, Tracked> =>
+        prior.bg
+          ? new Map(prior.bg.map(x => [x.id, { ...x, ...(x.kind === 'agent' ? { agentId: x.id } : {}) }]))
+          : new Map((prior.tasks ?? []).map((label, i) => {
+              const cut = label.indexOf(': ')
+              const what = cut < 0 ? label : label.slice(cut + 2)
+              const kind = cut < 0 ? 'task' : label.startsWith('wake-up: ') ? 'wake-up' : kindOf(label.slice(0, cut))
+              return [`restored-${i}`, { label, what, kind, since: prior.changedAt, isExact: false }]
+            }))
       if (prior.status === 'working' || prior.status === 'needs-you') {
         phase = 'working'
         isTurnRunning = true
         mainActivity = prior.status === 'working' ? prior.activity : undefined
         if (prior.status === 'needs-you') calls.set('restored', { tool: '', args: {}, what: '', asking: prior.activity, at })
+        if (prior.bg) stopTasks = restoredTasks()
       } else if (prior.status === 'background') {
         phase = 'background'
-        stopTasks = new Map((prior.tasks ?? []).map((label, i) => [`restored-${i}`, { label }]))
+        stopTasks = restoredTasks()
       } else {
         phase = prior.status === 'stopped' || prior.status === 'replied' ? prior.status : 'open'
         mainActivity = prior.activity
@@ -1981,7 +2075,7 @@ export const register: Register = (on, options) => {
           // This session's own card: the live one, not last round's file.
           if (me && c.id === me.id) c = me
           const isQuiet = c.status !== 'closed' && t - c.seenAt > GONE_MS
-          const card: BoardEntry = isQuiet ? { ...c, status: 'gone', activity: undefined, tasks: undefined, changedAt: c.seenAt } : c
+          const card: BoardEntry = isQuiet ? { ...c, status: 'gone', activity: undefined, tasks: undefined, bg: undefined, changedAt: c.seenAt } : c
           const isEnded = card.status === 'closed' || card.status === 'gone'
           if (!isEnded || t - card.changedAt < KEEP_ENDED_MS) cards.push(card)
         }
@@ -2051,12 +2145,11 @@ export const register: Register = (on, options) => {
     const isTaskReport = o.kind === 'task-notification' || /^<task-notification[\s>]/.test(text)
     const t = await $.clock.now()
     await adoptId($, t).catch(() => undefined)
-    // A background task's report: that task is done (fallback tracking only).
+    // A background task's report: that task is done, and leaves every list at once.
     if (isTaskReport) {
-      for (const m of e.text.matchAll(/<task-id>([^<]+)<\/task-id>/g)) {
-        tracked.delete(m[1]!.trim())
-        stopTasks?.delete(m[1]!.trim())
-      }
+      for (const m of e.text.matchAll(/<task-id>([^<]+)<\/task-id>/g)) dropTask(m[1]!.trim())
+      derive(t)
+      pushLive($)
     }
     if (isYours && !isTaskReport && text !== '') {
       // Sending a prompt is a veto, and ends the result row of the last compaction.
@@ -2129,9 +2222,9 @@ export const register: Register = (on, options) => {
   // when classic Stop carries no `background_tasks`.
   on('agent.spawn', async ($, e, next) => {
     const r = await next(e)
-    if (e.background && r.agentId) tracked.set(r.agentId, { label: `subagent: ${short(e.description ?? e.subagentType ?? '', 50)}`, kind: 'agent', agentId: r.agentId })
     if (r.agentId) {
       const t = await $.clock.now()
+      if (e.background) tracked.set(r.agentId, task('subagent', short(e.description ?? e.subagentType ?? '', 50), 'agent', t, true, r.agentId))
       const model = 'model' in r && typeof r.model === 'string' && r.model !== '' ? r.model : e.model
       agents.set(r.agentId, { id: r.agentId, type: e.subagentType || 'agent', description: e.description ?? '', model, status: 'running', startedAt: t, background: e.background === true })
       pushLive($)
@@ -2195,10 +2288,13 @@ export const register: Register = (on, options) => {
       // Background work this call left running (fallback tracking only).
       if (!('deny' in result && result.deny !== undefined)) {
         const rec = asRecord(result.result)
-        if (typeof rec.backgroundTaskId === 'string') tracked.set(rec.backgroundTaskId, { label: `shell: ${short(what, 50)}`, kind: 'job' })
-        if (tool === 'Monitor' && typeof rec.taskId === 'string') tracked.set(rec.taskId, { label: `monitor: ${short(what, 50)}`, kind: 'monitor' })
+        // Its start: when the call returned with it running (the engine's own id, as its Stop list and its report use).
+        const at = await $.clock.now()
+        if (typeof rec.backgroundTaskId === 'string') tracked.set(rec.backgroundTaskId, task('shell', short(what, 50), 'job', at, true))
+        if (tool === 'Monitor' && typeof rec.taskId === 'string') tracked.set(rec.taskId, task('monitor', short(what, 50), 'monitor', at, true))
         if (tool === 'Agent' && rec.status === 'async_launched' && typeof rec.agentId === 'string') {
-          tracked.set(rec.agentId, { label: `subagent: ${short(typeof args.description === 'string' ? args.description : '', 50)}`, kind: 'agent', agentId: rec.agentId })
+          const was = tracked.get(rec.agentId)
+          tracked.set(rec.agentId, task('subagent', short(typeof args.description === 'string' ? args.description : '', 50), 'agent', was?.since ?? at, true, rec.agentId))
         }
         let isNew = false
         try {
@@ -2243,13 +2339,21 @@ export const register: Register = (on, options) => {
     const r = await next(e)
     if (e.agent_id !== undefined || r.block !== undefined || r.preventContinuation) return r
     if (e.background_tasks !== undefined) {
-      stopTasks = new Map<string, Tracked>()
+      const at = await $.clock.now()
+      // A task keeps the start the board already knew (its own call, or an earlier Stop); one it never saw starts
+      // "no later than now".
+      const known = (id: string) => stopTasks?.get(id) ?? tracked.get(id)
+      const fresh = new Map<string, Tracked>()
       for (const x of e.background_tasks) {
-        stopTasks.set(x.id, { label: taskLabel(x), kind: kindOf(x.type), agentId: x.type === 'subagent' ? x.id : undefined })
+        const was = known(x.id)
+        fresh.set(x.id, task(x.type, taskWhat(x), kindOf(x.type), was?.since ?? at, was?.isExact ?? false, x.type === 'subagent' ? x.id : undefined))
       }
       for (const c of e.session_crons ?? []) {
-        if (!c.recurring) stopTasks.set(`cron-${c.id}`, { label: `wake-up: ${short(c.prompt, 50)}`, kind: 'wake-up' })
+        const was = known(`cron-${c.id}`)
+        if (!c.recurring) fresh.set(`cron-${c.id}`, task('wake-up', short(c.prompt, 50), 'wake-up', was?.since ?? at, was?.isExact ?? false))
       }
+      stopTasks = fresh
+      stopAt = at
     } else stopTasks = undefined
     stopSeenThisTurn = true
     void refreshGuard(guardIo($)).catch(() => undefined)
@@ -2268,7 +2372,11 @@ export const register: Register = (on, options) => {
     for (const [k, c] of calls) if (c.agentId === e.agent_id) calls.delete(k)
     const a = agents.get(e.agent_id)
     if (a && a.status === 'running') {
-      agents.set(a.id, { ...a, status: 'done', activity: undefined, endedAt: await $.clock.now() })
+      const t = await $.clock.now()
+      agents.set(a.id, { ...a, status: 'done', activity: undefined, endedAt: t })
+      // A finished background agent leaves the background lists at once, not at its report.
+      dropTask(a.id)
+      derive(t)
       pushLive($)
     }
     return next(e)
@@ -2280,7 +2388,10 @@ export const register: Register = (on, options) => {
       const a = agents.get(e.agentId)
       if (a && a.status === 'running') {
         const status = e.isAborted ? 'stopped' : e.reason === 'error' || e.reason === 'refusal' ? 'failed' : 'done'
-        agents.set(a.id, { ...a, status, activity: undefined, endedAt: await $.clock.now() })
+        const t = await $.clock.now()
+        agents.set(a.id, { ...a, status, activity: undefined, endedAt: t })
+        dropTask(a.id)
+        derive(t)
         pushLive($)
       }
       return next(e)
@@ -2400,12 +2511,16 @@ export const register: Register = (on, options) => {
     const quietN = q.working + q.waiting + q.idle
     // Shown whenever another session is open: alerts as pills, the rest as dim counts.
     const hasOthers = a.needs.length > 0 || a.replied.length > 0 || quietN > 0
-    // This session's background agents still running: shown only when there are any.
-    // Only a running background agent opens the strip on its own (a lone shell or timer never did); once the strip
-    // is open, the chip counts what the "Waiting on …" label names, so the two always agree.
+    // This session's background work still running: shown only when there is any.
+    // A background job, monitor or agent opens the strip on its own, while a turn runs too (since 0.29.0; before it, a
+    // lone shell never did). A one-shot wake-up alone does not: it waits, it does not run. The chip counts what the
+    // "Waiting on …" label names, so the two always agree.
     const bgAgents = l.agents.filter(x => x.status === 'running' && x.background === true).length
     const bgN = Math.max(l.bg, bgAgents)
-    const hasAlerts = hasOthers || bgAgents > 0
+    const rows = l.bgRows ?? []
+    const hasAlerts = hasOthers || bgAgents > 0 || rows.some(x => x.kind !== 'wake-up')
+    // The chip's time: read the refresh clock only when there is work to time, so an idle strip is not redrawn.
+    const oldest = rows.length > 0 ? oldestRun(rows, await read($, now)) : undefined
     // The recap after a turn: only when it flagged a check or assumptions wait for you.
     const rc = await read($, recapAtom)
     const review = await read($, reviewAtom)
@@ -2470,7 +2585,7 @@ export const register: Register = (on, options) => {
     if (q.idle > 0) quietItems.push(statusChip('sb-q-idle', COLOR.open, `${ICON.open}${q.idle}`))
     // Every item of the group touches the next (no gaps), like the current group's pills do.
     const groupItems = [...pills, ...quietItems]
-    const bgEl = bgN > 0 && statusChip('sb-bg', COLOR.background, bgChipText(l.bgKinds, bgN, false))
+    const bgEl = bgN > 0 && statusChip('sb-bg', COLOR.background, bgChipText(l.bgKinds, bgN, false, oldest))
     // A narrow terminal (a split pane): counts instead of folder names, so the row stays short instead of breaking
     // into one-letter stripes. The same two label chips and the same "│" as the wide row, the status as its glyph only.
     if (e.props.bodyColumns < 60) {
@@ -2630,11 +2745,12 @@ export const register: Register = (on, options) => {
               })()}
             </Text>
           )}
+          {/* Waiting on background work: each task with how long it has run (cards from 0.29.0 on carry the times). */}
           {c.activity && !ended && (
             <Text>
               {edge}
               <Text color={c.status === 'needs-you' ? 'yellow' : undefined} dimColor={c.status !== 'needs-you'}>
-                → {short(c.activity, width - 6)}
+                → {short(c.status === 'background' && c.bg ? c.bg.map(x => `${x.label} (${ranFor(x, t)})`).join(' · ') : c.activity, width - 6)}
               </Text>
             </Text>
           )}

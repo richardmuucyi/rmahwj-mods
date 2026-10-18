@@ -11,9 +11,19 @@
  */
 export type BoardStatus = 'open' | 'working' | 'needs-you' | 'background' | 'replied' | 'stopped' | 'gone' | 'closed'
 
+/** What kind of background work a task is: a background shell is a job. */
+export type TaskKind = 'job' | 'agent' | 'monitor' | 'wake-up' | 'task'
+
+/** One piece of background work on a card: the engine's own id (its report names it), and when it started. `isExact`
+ *  is false where the start is only when a Stop first listed it, so it may have started earlier ("≥"). */
+export type CardTask = { id: string; label: string; what: string; kind: TaskKind; since: number; isExact: boolean }
+
+/** One row of the panel's BACKGROUND section, oldest first. */
+export type BgRow = { id: string; kind: TaskKind; what: string; since: number; isExact: boolean }
+
 /** One session's card, as each session writes it to the shared folder. */
 export type BoardEntry = {
-  /** Card format; 2 adds `background` and `tasks`, 3 adds `progress`. */
+  /** Card format; 2 adds `background` and `tasks`, 3 adds `progress`, 4 adds `bg`. */
   v?: number
   id: string
   /** The project folder, full path. */
@@ -27,6 +37,9 @@ export type BoardEntry = {
   activity?: string
   /** The background work in flight when the last turn ended, one short label each. */
   tasks?: string[]
+  /** The background work in flight now, in any state, with ids and start times: the panel shows how long each has run,
+   *  and a reload restores them from it. Older versions ignore it. */
+  bg?: CardTask[]
   /** The session's task list: items done of all items (Claude's own task list). */
   progress?: { done: number; total: number }
   /** Epoch ms of the last status change. */
@@ -166,10 +179,12 @@ declare module 'claude-code' {
         showProgress: boolean
         agents: AgentRow[]
         turnFiles: number
-        /** This session's background work still running: the count the "Waiting on …" label names. */
+        /** This session's background work still running, while a turn runs too: the count the "Waiting on …" label names. */
         bg: number
         /** The same, by kind, for the ◈ chip: background jobs (shells), agents, monitors, wake-ups, other tasks. */
-        bgKinds: Partial<Record<'job' | 'agent' | 'monitor' | 'wake-up' | 'task', number>>
+        bgKinds: Partial<Record<TaskKind, number>>
+        /** The same, one row each with its start, oldest first: the panel's BACKGROUND section and the chip's time. */
+        bgRows: BgRow[]
       }
       /** Turns logged today across all sessions; null when the journal setting is off. */
       journal: { today: number } | null
