@@ -166,6 +166,10 @@ declare module 'claude-code' {
         showProgress: boolean
         agents: AgentRow[]
         turnFiles: number
+        /** This session's background work still running: the count the "Waiting on …" label names. */
+        bg: number
+        /** The same, by kind, for the ◈ chip: background jobs (shells), agents, monitors, wake-ups, other tasks. */
+        bgKinds: Partial<Record<'job' | 'agent' | 'monitor' | 'wake-up' | 'task', number>>
       }
       /** Turns logged today across all sessions; null when the journal setting is off. */
       journal: { today: number } | null

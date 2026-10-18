@@ -465,14 +465,14 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await $.agent.spawn({ prompt: 'find', description: 'Scan the vault', subagentType: 'Explore', background: true } as never)
     await $.turn.complete({ answer: 'ok', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
     await clock.advance(5_000)
-    expect(await strip()).toBe('current ◌ Waiting on a background task ◈ 1 sessions ›')
+    expect(await strip()).toBe('current ◌ Waiting on a background task ◈ 1 agent sessions ›')
     // The status and the background count are chips on the labels' black (their colour is the text), and they touch.
     const band = await $.ui.mount({ plugin: 'session-board', surface, component: 'AbovePrompt', props: { ...BAND, isWorking: false } })
     const drawn = await band.find({ key: 'sb-strip' })
     expect(chipsOf(drawn)).toEqual([
-      ['#000000', ' current  ', '#8B949E'], ['#000000', ' ◌ Waiting on a background task ', 'magenta'], ['#000000', ' ◈ 1 ', 'magenta'],
+      ['#000000', ' current  ', '#8B949E'], ['#000000', ' ◌ Waiting on a background task ', 'magenta'], ['#000000', ' ◈ 1 agent ', 'magenta'],
     ])
-    expect(drawn?.text).toContain('task  ◈ 1')
+    expect(drawn?.text).toContain('task  ◈ 1 agent')
     await band.unmount()
     // It ends: the count goes, and so does the strip.
     await $.classic.SubagentStop({ agent_id: 'a1', agent_type: 'Explore', stop_hook_active: false } as never)
@@ -495,7 +495,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
       await band.unmount()
       return s
     }
-    // One background agent and one background shell: the strip opens for the agent, and the chip says 2, as the label does.
+    // One background agent and one background shell: the strip opens for the agent, and the chip counts each, as the label does.
     await $.agent.spawn({ prompt: 'find', description: 'Scan the vault', subagentType: 'Explore', background: true } as never)
     await $.turn.complete({ answer: 'ok', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
     await $.classic.Stop({
@@ -506,11 +506,54 @@ for (const surface of ['terminal', 'desktop'] as const) {
       ],
     })
     await clock.advance(5_000)
-    expect(await strip()).toBe('current ◌ Waiting on 2 background tasks ◈ 2 sessions ›')
+    expect(await strip()).toBe('current ◌ Waiting on 2 background tasks ◈ 1 job · 1 agent sessions ›')
     // The agent ends: nothing but a shell is left, and a shell alone opens no strip.
     await $.classic.SubagentStop({ agent_id: 'a1', agent_type: 'Explore', stop_hook_active: false } as never)
     await clock.advance(5_000)
     expect(await strip()).toBe('')
+  })
+
+  test(`the ◈ chip counts jobs, agents, monitors and wake-ups apart; initials when narrow (${surface})`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    const files = new Map<string, string>()
+    const repo: Repo = { isRepo: false, status: [], numstat: [], runs: [] }
+    bottom(on, files, repo)
+    on('tool.call', () => ({ result: 'ok' }))
+    await $.session.start({ cwd: '/home/me/vault', surface, isInteractive: true })
+    await $.turn.start({ text: 'Go', turnId: 't1' })
+    await clock.advance(5_000)
+    const chip = async (bodyColumns: number) => {
+      const band = await $.ui.mount({ plugin: 'session-board', surface, component: 'AbovePrompt', props: { ...BAND, bodyColumns, isWorking: false } })
+      const drawn = await band.find({ key: 'sb-strip' })
+      await band.unmount()
+      return chipsOf(drawn).map(c => c[1].trim()).find(t => t.startsWith('◈')) ?? ''
+    }
+    // A background agent keeps the strip open; two background shells, a monitor and a one-shot wake-up beside it.
+    await $.agent.spawn({ prompt: 'find', description: 'Scan the vault', subagentType: 'Explore', background: true } as never)
+    await $.turn.complete({ answer: 'ok', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
+    await $.classic.Stop({
+      stop_hook_active: false,
+      background_tasks: [
+        { id: 'a1', type: 'subagent', status: 'running', description: 'Scan the vault' },
+        { id: 's1', type: 'shell', status: 'running', description: 'Render on the GPU' },
+        { id: 's2', type: 'shell', status: 'running', description: 'npm run dev' },
+        { id: 'm1', type: 'monitor', status: 'running', description: 'Watch the render log' },
+      ],
+      session_crons: [{ id: 'c1', prompt: 'check the render', recurring: false }],
+    } as never)
+    await clock.advance(5_000)
+    expect(await chip(BAND.bodyColumns)).toBe('◈ 2 jobs · 1 agent · 1 monitor · 1 wake-up')
+    expect(await chip(50)).toBe('◈2j 1a 1m 1w')
+    // A type this version does not know is a plain task, not a job or a monitor.
+    await $.classic.Stop({
+      stop_hook_active: false,
+      background_tasks: [
+        { id: 'a1', type: 'subagent', status: 'running', description: 'Scan the vault' },
+        { id: 'r1', type: 'remote_agent', status: 'running', description: 'Review in the cloud' },
+      ],
+    } as never)
+    await clock.advance(5_000)
+    expect(await chip(BAND.bodyColumns)).toBe('◈ 1 agent · 1 task')
   })
 
   test(`journal on: log day folders past 30 days are removed, nothing else (${surface})`, { options: { journal: true } }, async ($, on) => {

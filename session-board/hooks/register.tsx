@@ -43,6 +43,7 @@ const liveAtom = atom({ plugin: 'session-board', key: 'live' } as const, {
   agents: [],
   turnFiles: 0,
   bg: 0,
+  bgKinds: {},
 })
 const turnsAtom = atom({ plugin: 'session-board', key: 'turns' } as const, [])
 const journalAtom = atom({ plugin: 'session-board', key: 'journal' } as const, null)
@@ -269,10 +270,21 @@ function taskLabel(t: { type: string; description: string; command?: string; age
   return `${t.type}: ${short(what, 50)}`
 }
 
+/** A background task's kind from its type (classic Stop's `background_tasks[].type`): a background shell is a job.
+ *  A type this version does not know counts as a plain task, never as one of the others. */
+function kindOf(type: string): TaskKind {
+  if (type === 'shell' || type === 'bash' || type === 'local_bash') return 'job'
+  if (type === 'monitor') return 'monitor'
+  if (type === 'subagent' || type === 'agent') return 'agent'
+  return 'task'
+}
+
 /** A tool call in flight, and the dialog it waits on, if any. */
 type Call = { tool: string; agentId?: string; args: Record<string, unknown>; what: string; asking?: string; at: number }
+/** What kind of background work a task is: the strip's ◈ chip counts each kind apart. */
+type TaskKind = 'job' | 'monitor' | 'agent' | 'wake-up' | 'task'
 /** Background work this session started, tracked from its own tool calls (fallback only). */
-type Tracked = { label: string; agentId?: string }
+type Tracked = { label: string; kind: TaskKind; agentId?: string }
 
 // Module state: a hot reload starts it over, and session.start (which fires
 // again for a reloaded module) restores the card from its own file.
@@ -325,6 +337,35 @@ function derive(t: number): void {
 
 function currentTasks(): string[] {
   return [...(stopTasks ?? tracked).values()].map(x => x.label)
+}
+
+/** How many of the current background tasks are of each kind, for the ◈ chip. */
+function currentKinds(): Partial<Record<TaskKind, number>> {
+  const n: Partial<Record<TaskKind, number>> = {}
+  for (const x of (stopTasks ?? tracked).values()) n[x.kind] = (n[x.kind] ?? 0) + 1
+  return n
+}
+
+const KIND_ORDER: TaskKind[] = ['job', 'agent', 'monitor', 'wake-up', 'task']
+/** Each kind's word, its plural and its initial for a narrow pane. */
+const KIND_WORD: Record<TaskKind, [string, string, string]> = {
+  job: ['job', 'jobs', 'j'], agent: ['agent', 'agents', 'a'], monitor: ['monitor', 'monitors', 'm'],
+  'wake-up': ['wake-up', 'wake-ups', 'w'], task: ['task', 'tasks', 't'],
+}
+
+/** The ◈ chip's text: each kind counted apart ("◈ 1 job · 1 monitor"), initials when narrow ("◈1j 1m"). Running
+ *  background agents the last Stop did not list count as agents. With no kinds at all (state from before this
+ *  version), the plain total, as before. */
+function bgChipText(kinds: Partial<Record<TaskKind, number>> | undefined, total: number, isNarrow: boolean): string {
+  const k: Partial<Record<TaskKind, number>> = { ...(kinds ?? {}) }
+  const known = KIND_ORDER.reduce((sum, x) => sum + (k[x] ?? 0), 0)
+  if (known === 0) return isNarrow ? `◈${total}` : `◈ ${total}`
+  if (total > known) k.agent = (k.agent ?? 0) + total - known
+  const parts = KIND_ORDER.filter(x => (k[x] ?? 0) > 0).map(x => {
+    const n = k[x] ?? 0
+    return isNarrow ? `${n}${KIND_WORD[x][2]}` : `${n} ${n === 1 ? KIND_WORD[x][0] : KIND_WORD[x][1]}`
+  })
+  return isNarrow ? `◈${parts.join(' ')}` : `◈ ${parts.join(' · ')}`
 }
 
 /** Writes the latest card, one write at a time, in order. Never rejects. */
@@ -685,6 +726,7 @@ async function publishFiles($: EngineInterface): Promise<void> {
 function pushLive($: EngineInterface): void {
   const p = progressOf()
   const order = { running: 0, failed: 1, stopped: 2, done: 3 }
+  const bgAgentsRunning = [...agents.values()].filter(a => a.status === 'running' && a.background === true).length
   const fresh = {
     isWorking: isTurnRunning,
     model: ownModel,
@@ -693,7 +735,9 @@ function pushLive($: EngineInterface): void {
     agents: [...agents.values()].sort((a, b) => order[a.status] - order[b.status] || a.startedAt - b.startedAt),
     turnFiles: viewList('turn').length,
     // The strip's count: the tasks the "Waiting on …" label names (shells and timers too), else the agents still running.
-    bg: phase === 'background' ? currentTasks().length : [...agents.values()].filter(a => a.status === 'running' && a.background === true).length,
+    bg: phase === 'background' ? currentTasks().length : bgAgentsRunning,
+    // The same, counted by kind for the ◈ chip (jobs, agents, monitors, wake-ups).
+    bgKinds: phase === 'background' ? currentKinds() : bgAgentsRunning > 0 ? { agent: bgAgentsRunning } : {},
   }
   void update($, liveAtom, v => (same(v, fresh) ? v : fresh)).catch(() => undefined)
   publishTurns($)
@@ -2085,7 +2129,7 @@ export const register: Register = (on, options) => {
   // when classic Stop carries no `background_tasks`.
   on('agent.spawn', async ($, e, next) => {
     const r = await next(e)
-    if (e.background && r.agentId) tracked.set(r.agentId, { label: `subagent: ${short(e.description ?? e.subagentType ?? '', 50)}`, agentId: r.agentId })
+    if (e.background && r.agentId) tracked.set(r.agentId, { label: `subagent: ${short(e.description ?? e.subagentType ?? '', 50)}`, kind: 'agent', agentId: r.agentId })
     if (r.agentId) {
       const t = await $.clock.now()
       const model = 'model' in r && typeof r.model === 'string' && r.model !== '' ? r.model : e.model
@@ -2151,10 +2195,10 @@ export const register: Register = (on, options) => {
       // Background work this call left running (fallback tracking only).
       if (!('deny' in result && result.deny !== undefined)) {
         const rec = asRecord(result.result)
-        if (typeof rec.backgroundTaskId === 'string') tracked.set(rec.backgroundTaskId, { label: `shell: ${short(what, 50)}` })
-        if (tool === 'Monitor' && typeof rec.taskId === 'string') tracked.set(rec.taskId, { label: `monitor: ${short(what, 50)}` })
+        if (typeof rec.backgroundTaskId === 'string') tracked.set(rec.backgroundTaskId, { label: `shell: ${short(what, 50)}`, kind: 'job' })
+        if (tool === 'Monitor' && typeof rec.taskId === 'string') tracked.set(rec.taskId, { label: `monitor: ${short(what, 50)}`, kind: 'monitor' })
         if (tool === 'Agent' && rec.status === 'async_launched' && typeof rec.agentId === 'string') {
-          tracked.set(rec.agentId, { label: `subagent: ${short(typeof args.description === 'string' ? args.description : '', 50)}`, agentId: rec.agentId })
+          tracked.set(rec.agentId, { label: `subagent: ${short(typeof args.description === 'string' ? args.description : '', 50)}`, kind: 'agent', agentId: rec.agentId })
         }
         let isNew = false
         try {
@@ -2201,10 +2245,10 @@ export const register: Register = (on, options) => {
     if (e.background_tasks !== undefined) {
       stopTasks = new Map<string, Tracked>()
       for (const x of e.background_tasks) {
-        stopTasks.set(x.id, { label: taskLabel(x), agentId: x.type === 'subagent' ? x.id : undefined })
+        stopTasks.set(x.id, { label: taskLabel(x), kind: kindOf(x.type), agentId: x.type === 'subagent' ? x.id : undefined })
       }
       for (const c of e.session_crons ?? []) {
-        if (!c.recurring) stopTasks.set(`cron-${c.id}`, { label: `wake-up: ${short(c.prompt, 50)}` })
+        if (!c.recurring) stopTasks.set(`cron-${c.id}`, { label: `wake-up: ${short(c.prompt, 50)}`, kind: 'wake-up' })
       }
     } else stopTasks = undefined
     stopSeenThisTurn = true
@@ -2426,7 +2470,7 @@ export const register: Register = (on, options) => {
     if (q.idle > 0) quietItems.push(statusChip('sb-q-idle', COLOR.open, `${ICON.open}${q.idle}`))
     // Every item of the group touches the next (no gaps), like the current group's pills do.
     const groupItems = [...pills, ...quietItems]
-    const bgEl = bgN > 0 && statusChip('sb-bg', COLOR.background, `◈ ${bgN}`)
+    const bgEl = bgN > 0 && statusChip('sb-bg', COLOR.background, bgChipText(l.bgKinds, bgN, false))
     // A narrow terminal (a split pane): counts instead of folder names, so the row stays short instead of breaking
     // into one-letter stripes. The same two label chips and the same "│" as the wide row, the status as its glyph only.
     if (e.props.bodyColumns < 60) {
@@ -2436,7 +2480,7 @@ export const register: Register = (on, options) => {
         <Box key="sb-strip" flexWrap="wrap">
           {own !== null && labelChip('sb-current', 'current'.padEnd(FIRST_COL))}
           {own !== null && statusChip('sb-self', COLOR[own.status as BoardStatus] ?? 'gray', `${ICON[own.status as BoardStatus] ?? ''}`)}
-          {bgN > 0 && statusChip('sb-bg', COLOR.background, `◈${bgN}`)}
+          {bgN > 0 && statusChip('sb-bg', COLOR.background, bgChipText(l.bgKinds, bgN, true))}
           {own !== null && hasOthers && <Text dimColor>{' │ '}</Text>}
           {hasOthers && (
             <Text key="sb-others">
