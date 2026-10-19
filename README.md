@@ -1,6 +1,6 @@
 # rmahwj-mods
 
-Six small [Claude Code](https://claude.com/claude-code) mods by Richard Mah. A mod changes how Claude Code looks or behaves: a strip above the prompt, a panel, a slash command, a hook on your prompts.
+Six small [Claude Code](https://claude.com/claude-code) mods: five by Richard Mah, one by Thariq Shihipar. A mod changes how Claude Code looks or behaves: a strip above the prompt, a panel, a slash command, a hook on your prompts.
 
 | Mod | What it does |
 |---|---|
