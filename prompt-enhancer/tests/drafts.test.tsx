@@ -209,6 +209,36 @@ test('a draft arriving after the skills appeared is still checked: the scan runs
   await b.unmount()
 })
 
+test('✎ Correct on a brief leaves your own words in the box; with the box empty it puts the correction start there', async ($, on) => {
+  const r = bottom(on, new Map())
+  await $.prompt.submit({ text: '++ fix the login bug', origin: { kind: 'composer' }, wait: false })
+  await reply($, 'Brief.\n```brief\ngoal: SSO login works\nscope: login page only\nconstraints: none\ndone: SSO login works in the dev build\n```')
+  r.box = 'note to self: ask about the flaky test'
+  const b = await band($)
+  await b.press({ key: 'pe-correct' })
+  expect(r.box).toBe('note to self: ask about the flaky test')
+  expect(r.toasts.at(-1)).toBe('Your prompt box has text: clear it, then press ✎ Correct again')
+  expect(Boolean(await b.find({ key: 'pe-ready' }))).toBe(true) // the card stays
+  r.box = ''
+  await b.press({ key: 'pe-correct' })
+  expect(r.box).toBe('Correction to the brief: ')
+  expect(Boolean(await b.find({ key: 'pe-ready' }))).toBe(false)
+  await b.unmount()
+})
+
+test('✎ Correct on a brief with a prompt box that cannot be read changes nothing and says so; the card stays', async ($, on) => {
+  const r = bottom(on, new Map(), { noBox: true })
+  await $.prompt.submit({ text: '++ fix the login bug', origin: { kind: 'composer' }, wait: false })
+  await reply($, 'Brief.\n```brief\ngoal: SSO login works\nscope: login page only\nconstraints: none\ndone: SSO login works in the dev build\n```')
+  r.box = 'my own half-typed note'
+  const b = await band($)
+  await b.press({ key: 'pe-correct' })
+  expect(r.box).toBe('my own half-typed note')
+  expect(r.toasts.at(-1)).toBe('Could not read the prompt box: type "Correction to the brief:" and your correction yourself')
+  expect(Boolean(await b.find({ key: 'pe-ready' }))).toBe(true)
+  await b.unmount()
+})
+
 test('a prompt box that cannot be read is left alone, and the toast does not claim it held your typing', async ($, on) => {
   const r = bottom(on, new Map(), { noBox: true })
   await $.prompt.submit({ text: '++goal make the tests pass', origin: { kind: 'composer' }, wait: false })

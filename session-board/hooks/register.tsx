@@ -2516,7 +2516,9 @@ export const register: Register = (on, options) => {
     // lone shell never did). A one-shot wake-up alone does not: it waits, it does not run. The chip counts what the
     // "Waiting on …" label names, so the two always agree.
     const bgAgents = l.agents.filter(x => x.status === 'running' && x.background === true).length
-    const bgN = Math.max(l.bg, bgAgents)
+    // Running background agents beyond the ones the list holds as agents are ones the last Stop did not list: they add
+    // to the list's count, so a listed job never hides one (by count, not id, like the larger-of-two this replaced).
+    const bgN = l.bg + Math.max(0, bgAgents - (l.bgKinds.agent ?? 0))
     const rows = l.bgRows ?? []
     const hasAlerts = hasOthers || bgAgents > 0 || rows.some(x => x.kind !== 'wake-up')
     // The chip's time: read the refresh clock only when there is work to time, so an idle strip is not redrawn.

@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { GOAL_LIMIT, lintGoal, lintLoop, userOnlyName } from '../hooks/lint'
+import { DEEP_WORDS, GOAL_LIMIT, lintDeep, lintGoal, lintLoop, lintPanel, userOnlyName, wordCount } from '../hooks/lint'
 
 // The cap pattern the ++goal instruction asks for, as a real draft would carry it.
 const CAPPED_GOAL =
@@ -161,4 +161,144 @@ test('userOnlyName reads the flag from the frontmatter only, in its YAML spellin
   expect(userOnlyName('---\nname: krea2\ndisable-model-invocation: false\n---\n', 'krea2')).toBeNull()
   expect(userOnlyName('---\nname: krea2\n---\ndisable-model-invocation: true\n', 'krea2')).toBeNull()
   expect(userOnlyName('no frontmatter\ndisable-model-invocation: true', 'x')).toBeNull()
+})
+
+// ── ++deep: the proof and the size ────────────────────────────────────────────
+
+const ONLY_US = 'the proof is only you or me looking: name an outside check'
+const SHORT = 'Fix the SSO login bug. Start from logs/auth.log. Done when the SSO end-to-end test passes on a clean clone.'
+
+test('a deep draft with an outside proof and a short rewrite passes clean (negative control)', () => {
+  for (const proof of [
+    'the SSO end-to-end test passes on a clean clone',
+    'I check that `pytest -k sso` exits 0',
+    'a person who is neither of us reads it and signs off',
+    'someone other than you or me reads it and agrees',
+    'the totals match the bank statement',
+    'its p95 latency is under 200 ms in the load test',
+  ]) {
+    expect([proof, lintDeep(proof, SHORT)]).toEqual([proof, []])
+  }
+})
+
+test('a proof that is only one of us looking is flagged, in its common wordings', () => {
+  for (const proof of ['you review it', 'I look over the page and confirm', 'Claude confirms it works', 'you or I read it through', 'we agree it is right']) {
+    expect([proof, lintDeep(proof, SHORT)]).toEqual([proof, [ONLY_US]])
+  }
+})
+
+test('a taste word as the proof is flagged once, even when it is also only us looking', () => {
+  expect(lintDeep('it looks good on the page', SHORT)).toEqual(['the proof "looks good" is a taste word, not an outside check'])
+  expect(lintDeep('you review it and it looks right', SHORT)).toEqual([ONLY_US])
+})
+
+test('a missing rewrite, and one past the word cap, are flagged; a missing proof is the card part check, not this one', () => {
+  expect(lintDeep('the test passes', '')).toEqual(['no rewritten prompt: nothing to send'])
+  expect(lintDeep('the test passes', '  \n ')).toEqual(['no rewritten prompt: nothing to send'])
+  const atCap = Array.from({ length: DEEP_WORDS }, () => 'word').join(' ')
+  expect(lintDeep('the test passes', atCap)).toEqual([])
+  expect(lintDeep('the test passes', `${atCap} more`)).toEqual([`the rewrite is ${DEEP_WORDS + 1} words: bigger, not deeper?`])
+  expect(lintDeep(undefined, SHORT)).toEqual([])
+})
+
+test('a rewrite that calls a user-only skill is flagged; wordCount counts words, not spaces', () => {
+  expect(lintDeep('the test passes', `${SHORT} Then run /tutor.`, ['tutor'])).toEqual(['/tutor is user-only: Claude cannot call it, so you type it'])
+  expect(lintDeep('the test passes', `${SHORT} Read /tutor.md first.`, ['tutor'])).toEqual([])
+  expect(wordCount('  one two\n\nthree  ')).toBe(3)
+  expect(wordCount('')).toBe(0)
+})
+
+test('a user-only skill the rewrite says you type is what the instruction asks for, and is not flagged', () => {
+  for (const said of ["First I'll type /tutor, then", 'you type `/tutor` yourself first', 'Step 1 (you type it): /tutor']) {
+    expect([said, lintDeep('the test passes', `${SHORT} ${said}`, ['tutor'])]).toEqual([said, []])
+  }
+  // a step Claude would run is still flagged, even with "type" earlier in the sentence
+  expect(lintDeep('the test passes', `${SHORT} Type a summary. Then run /tutor.`, ['tutor'])).toEqual([
+    '/tutor is user-only: Claude cannot call it, so you type it',
+  ])
+})
+
+// Cases from the adversarial review and the live trial (2026-10-19): the old check fired on people
+// described with "I", "we" or "us", and let any proof with a number through.
+test('other people described with "I", "we" or "us" are outside the two of us', () => {
+  for (const proof of [
+    'an editor I trust reviews it',
+    'a security engineer we hire reviews the diff',
+    'a colleague who has never worked with us reviews it',
+    'anyone but you or me reads it and says where they got lost',
+    'I check the totals against the bank statement',
+  ]) {
+    expect([proof, lintDeep(proof, SHORT)]).toEqual([proof, []])
+  }
+})
+
+test('a proof that is still one of us looking is flagged, with or without a number in it', () => {
+  for (const proof of [
+    'your own review of the final draft',
+    'my own read of it',
+    'I look it over and confirm it is right',
+    'you read all 12 pages and confirm nothing is missing',
+    'you review the 4 renders and pick the best one',
+    'I look over the 2 drafts',
+    'the owner likes it',
+    'you decide whether it captures the mood',
+  ]) {
+    expect([proof, lintDeep(proof, SHORT)]).toEqual([proof, [ONLY_US]])
+  }
+})
+
+test('a taste word beside a measurement is a description, not the check', () => {
+  for (const proof of ['a 10x load test shows it stays robust', 'its BLEU score against a high-quality human reference']) {
+    expect([proof, lintDeep(proof, SHORT)]).toEqual([proof, []])
+  }
+  expect(lintDeep('it is robust', SHORT)).toEqual(['the proof "robust" is a taste word, not an outside check'])
+})
+
+// ── ++panel: five experts, two critics, different fields, methods ─────────────
+
+const expert = (field: string, critic = false, methods = `method for ${field}`, work = 'does the work') => ({ field, critic, work, methods })
+const FIVE = [expert('Designer'), expert('Writer'), expert('Support lead'), expert('Usability tester', true), expert('Security reviewer', true)]
+
+test('a panel of five, two critics, different fields, each with methods passes clean (negative control)', () => {
+  expect(lintPanel(FIVE)).toEqual([])
+})
+
+test('the wrong number of experts or critics is flagged', () => {
+  expect(lintPanel(FIVE.slice(0, 4))).toEqual(['4 experts, not five', '1 marked as critics, not two'])
+  expect(lintPanel([...FIVE, expert('Lawyer')])).toEqual(['6 experts, not five'])
+  expect(lintPanel(FIVE.map(x => ({ ...x, critic: false })))).toEqual(['0 marked as critics, not two'])
+  expect(lintPanel([])).toEqual(['0 experts, not five', '0 marked as critics, not two'])
+})
+
+test('a repeated field (any case), an empty line of work and a line with no methods are flagged', () => {
+  expect(lintPanel([...FIVE.slice(0, 4), expert('designer', true)])).toEqual(['designer appears twice: the fields should differ'])
+  expect(lintPanel([...FIVE.slice(0, 4), expert('Security reviewer', true, '', '')])).toEqual(['Security reviewer: nothing they would do'])
+  expect(lintPanel([...FIVE.slice(0, 4), expert('Security reviewer', true, '', 'checks for secrets')])).toEqual(['Security reviewer: no methods named'])
+  expect(lintPanel([...FIVE.slice(0, 4), expert('Security reviewer', true, 'none', 'checks for secrets')])).toEqual(['Security reviewer: no methods named'])
+  expect(lintPanel([...FIVE.slice(0, 4), expert('Security reviewer', true, 'a secret scan', 'checks for secrets')])).toEqual([])
+})
+
+test('generic methods and two names for one field are flagged; a real method beside a generic one is fine', () => {
+  expect(lintPanel([...FIVE.slice(0, 4), expert('Security reviewer', true, 'best practices, industry standards')])).toEqual([
+    'Security reviewer: only generic methods ("best practices, industry standards")',
+  ])
+  expect(lintPanel([...FIVE.slice(0, 4), expert('Security reviewer', true, 'best practices and a secret scan')])).toEqual([])
+  const perf = [expert('Web performance engineer'), expert('Web performance specialist'), expert('Writer'), expert('Usability tester', true), expert('Security reviewer', true)]
+  expect(lintPanel(perf)).toEqual(['Web performance engineer and Web performance specialist look like the same field'])
+  // different fields that share a role word are not the same field
+  const auditors = [expert('Data-integrity auditor', true), expert('Security auditor', true), expert('Writer'), expert('Designer'), expert('Support lead')]
+  expect(lintPanel(auditors)).toEqual([])
+})
+
+test('a long reply outside the panel block is flagged; a short line is not', () => {
+  expect(lintPanel(FIVE, [], 120)).toEqual([])
+  expect(lintPanel(FIVE, [], 301)).toEqual(['the reply says more outside the panel: read it before Go, it may ask something or start the work'])
+})
+
+test('a panel that names a user-only skill as a method is flagged once, unless it says you type it', () => {
+  const names = ['tutor']
+  expect(lintPanel([...FIVE.slice(0, 4), expert('Trainer', true, '/tutor, spaced recall', 'drills it')], names)).toEqual([
+    '/tutor is user-only: Claude cannot call it, so you type it',
+  ])
+  expect(lintPanel([...FIVE.slice(0, 4), expert('Trainer', true, 'you type /tutor yourself, spaced recall', 'drills it')], names)).toEqual([])
 })

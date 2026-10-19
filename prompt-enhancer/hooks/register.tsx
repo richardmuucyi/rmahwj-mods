@@ -1,10 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, ModelCompleteResult, Register, RenderElement } from 'claude-code'
 
-import type { DraftedCommand, GrammarCard } from '../types'
+import type { DraftedCommand, GrammarCard, PanelExpert } from '../types'
 import { EFFORT, MAX_TOKENS, MODEL, SYSTEM, TIMEOUT_MS, eligible, frame, label, parseCheck, review, rows } from './grammar'
 import type { Check, Seg } from './grammar'
-import { GOAL_LIMIT, lintGoal, lintLoop, userOnlyName } from './lint'
+import { DEEP_WORDS, GOAL_LIMIT, lintDeep, lintGoal, lintLoop, lintPanel, userOnlyName, wordCount } from './lint'
 
 // `++` makes no extra model call: each feature attaches a short instruction to
 // your own prompt, and the session's Claude, with everything it already has
@@ -19,7 +19,7 @@ const ready = atom({ plugin: 'prompt-enhancer', key: 'ready' } as const, null)
 const drafting = atom({ plugin: 'prompt-enhancer', key: 'drafting' } as const, null)
 const grammar = atom({ plugin: 'prompt-enhancer', key: 'grammar' } as const, null)
 
-type Kind = 'brief' | 'goal' | 'loop'
+type Kind = 'brief' | 'goal' | 'loop' | 'deep' | 'panel'
 
 // How many turns a draft may take (clarifying questions, then the draft).
 // Guided rounds can run over several turns when answers come back as prompts.
@@ -50,6 +50,14 @@ const PARTS: Record<Kind, { label: string; icon: string; required: boolean; miss
     { label: 'stop', icon: '🛑', required: true, missing: 'no stop condition' },
     { label: 'never', icon: '🚫', required: false, missing: '' },
   ],
+  deep: [
+    { label: 'pro', icon: '🎓', required: true, missing: 'nothing a top professional would add' },
+    { label: 'raw', icon: '🧱', required: true, missing: 'no raw material named' },
+    { label: 'methods', icon: '🛠', required: true, missing: 'no methods or tools named' },
+    { label: 'proof', icon: '🔍', required: true, missing: 'no outside check named' },
+  ],
+  // a panel's rows are its experts, read by parsePanel, not labelled parts
+  panel: [],
 }
 
 const NAMES: Record<string, string> = {
@@ -65,6 +73,10 @@ const NAMES: Record<string, string> = {
   if: 'If … then',
   stop: 'Stop when',
   never: 'Never',
+  pro: 'Pro would',
+  raw: 'Start from',
+  methods: 'Methods',
+  proof: 'Proof',
 }
 
 const CHECK_FIRST = (what: string) =>
@@ -131,20 +143,84 @@ if: …
 stop: …
 never: … (or "none")`
 
-const INSTRUCTION = { brief: CLARIFY, goal: GOAL, loop: LOOP } as const
+/**
+ * "Deeper, not bigger": what a top professional would do, start from, use, and let prove the
+ * result, then my prompt rewritten to ask for exactly that. The four questions are the owner's
+ * (2026-10-19); the rest makes the answers concrete enough to act on and keeps the size.
+ */
+const DEEPEN = `I want a deeper version of my request above, not a bigger one. Do not start the work. Before rewriting it:
+1. If the field or the deliverable is unclear enough to change your answers, ask me first (AskUserQuestion, at most 2 questions). Otherwise do not ask.
+2. Answer four questions, specific to this request, one line each, under 200 characters:
+   (1) what a top professional in this field would do here that I am not asking for;
+   (2) the rawest material they would start from instead of what has already been digested for me, and where it is (a file, a URL, a command, a dataset). You may read files or run read-only commands to find it; if it is out of reach, say so;
+   (3) the specific methods and tools they would use, by name;
+   (4) what, other than you or me, would show the result is right: a test, a measurement, a known answer to compare with, or a person who is neither of us. Never "you review it" or a taste word ("looks good", "polished").
+   Read a file before you say what it holds. Name only a path, command or commit you have checked exists; mark anything you could not check "(unchecked)".
+3. Then rewrite my prompt to ask for exactly that. Same deliverable and about the same amount of work: add the raw material, the methods and the proof as steps, add no new deliverables, and keep my own words where they work. Every step serves my one deliverable (finds its material, makes it, or checks it); a second result is a new deliverable even as a last step: a further report, an audit of something else, a new script. Anything you marked "(unchecked)" goes into the rewrite as a check-first step with a fallback ("first confirm X exists; if it does not, do Y instead"), never as a plain step that assumes it. Under ${DEEP_WORDS} words.
+4. Reply with the four answers in a fenced code block tagged deep, one line each:
+pro: …
+raw: …
+methods: …
+proof: …
+then the rewritten prompt alone in a fenced code block tagged prompt.`
+
+/**
+ * A panel of five: experts from different fields, two of them critics, picked for this request,
+ * with what each would do and with which methods. The card shows them; the work starts on ▶ Go.
+ * The core is the owner's prompt (2026-10-19), with his pause (same day) in place of "Then do
+ * that work"; the rest keeps the methods real and the scope the same.
+ */
+const PANEL = `Before you start on my request above, pick the five experts from different fields who would make this outstanding, including two whose job is to find what's wrong with it. For each one, tell me what they would actually do and which methods they would use. Do not start the work in this turn; wait for my go-ahead or my corrections.
+- If a choice must be settled before the work (which tools I will use, a fixed time, a budget), ask me with AskUserQuestion before you write the panel. The panel reply itself asks nothing: the card shows only the panel.
+- Name each by field, not as an invented person: no personas, voices or quotes.
+- Pick methods you can carry out here (read, run, test, measure, compare), each named specifically ("think-aloud test", not "best practices"). Where one needs something you lack (a person, a lab, paid data), say so on its line and name the nearest step you can do.
+- Reply with the five in a fenced code block tagged panel, with at most one short line outside it. One line per expert, under 200 characters: the field, "(critic)" after it for the two critics, a colon, what they would do, then "methods:" and the methods by name. The format only:
+Technical writer: turns each task into numbered steps a new hire can follow; methods: task analysis, plain-language review
+Usability tester (critic): watches two people follow it cold and notes where they stall; methods: think-aloud test, task success rate
+- When I say go, do the work. Don't role-play them, use their methods. Run each method with your tools where you can, and show its real result (its output, a count, a quote); if a method cannot run here, say so in one line rather than describe a result. If a search finds nothing, widen it before you say a file does not exist. Run the two critics' methods after the final text is written, on that text, not only on the plan or a first draft, and report what they found and what you changed. Keep the deliverable I asked for: the panel changes how the work is done, not what it is.`
+
+/**
+ * What ▶ Go sends. A prompt this mod submits skips its own hook, so the work rules travel in the
+ * text itself. The live trial (2026-10-19) with no tools saw methods described but never run, and
+ * a panel question that Go could not answer: hence the real-result and open-choice lines. A later
+ * check saw one narrow search (`*.md`, in a folder of .tsx files) taken as "the source is not there":
+ * hence the widen-the-search line.
+ */
+const PANEL_GO =
+  "Go ahead with the panel above: do the work with their methods, not their voices. Run each method with your tools where you can, and show its real result (its output, a count, a quote); if one cannot run here, say so in one line rather than describe a result. If a search finds nothing, widen it before you say a file does not exist. Where the panel left a choice open, take the safest option and name it. Run the two critics' methods after the final text is written, on that text, and report what they found and what you changed."
+/** What ✎ Correct puts in the box on a panel card. A prompt that starts with it gets PANEL_REVISE attached. */
+const PANEL_FIX = 'Correction to the panel: '
+/** Attached to a panel correction, so the revised panel comes back in the shape the card reads. */
+const PANEL_REVISE =
+  'Revise the panel as I ask, then reply with all five again in a fenced code block tagged panel, in the same line format, with at most one short line outside it. Do not start the work in this turn.'
+
+const INSTRUCTION = { brief: CLARIFY, goal: GOAL, loop: LOOP, deep: DEEPEN, panel: PANEL } as const
+
+/**
+ * Every fenced block tagged `tag`, in order: its body, and where the whole block sits in the answer.
+ * A block closes on a fence line as long as the one that opened it, so a ````prompt block may hold a
+ * ``` example. When no block closes that way (a fence on the body's own line), the loose form is read.
+ */
+function fences(answer: string, tag: string): { body: string; start: number; end: number }[] {
+  const strict = [...answer.matchAll(new RegExp('(`{3,})' + tag + '[^\\n]*\\n([\\s\\S]*?)\\n[ \\t]*\\1(?!`)', 'g'))]
+  const found = strict.length > 0 ? strict : [...answer.matchAll(new RegExp('```' + tag + '[^\\n]*\\n()([\\s\\S]*?)```', 'g'))]
+  return found.map(m => ({ body: (m[2] ?? '').trim(), start: m.index ?? 0, end: (m.index ?? 0) + m[0].length }))
+}
 
 /** The body of the first fenced block tagged `tag`, or null. */
 function block(answer: string, tag: string): string | null {
-  const m = answer.match(new RegExp('```' + tag + '[^\\n]*\\n([\\s\\S]*?)```'))
-  const body = m?.[1]?.trim() ?? ''
+  const body = fences(answer, tag)[0]?.body ?? ''
   return body === '' ? null : body
 }
+
+/** A line with any list marker ("- ", "1. ", "2) ", "• ") and bold taken off, as models often write them. */
+const unlist = (line: string) => line.replace(/\*\*/g, '').replace(/^\s*(?:\d+[.)]|[-*•])\s+/, '')
 
 /** "label: value" lines, in order; a line without a known label continues the previous value. */
 function parseParts(body: string | null): { label: string; value: string }[] {
   if (body === null) return []
   const parts: { label: string; value: string }[] = []
-  for (const line of body.split('\n')) {
+  for (const line of body.split(/\r?\n/).map(unlist)) {
     const m = line.match(/^\s*([a-z ]+?)\s*:\s*(.*)$/i)
     const label = m?.[1]?.toLowerCase().trim()
     if (m && label !== undefined && label in NAMES) parts.push({ label, value: (m[2] ?? '').trim() })
@@ -153,8 +229,50 @@ function parseParts(body: string | null): { label: string; value: string }[] {
   return parts
 }
 
-/** A draft in the answer: a goal or loop command, or a brief. */
-function findDraft(answer: string): DraftedCommand | null {
+/**
+ * A panel's lines, one expert each: "Field (critic): what they would do; methods: …". A list
+ * marker or bold is dropped; a line with no colon is all field, with nothing they would do. The
+ * methods are split off at the last "methods:" so the card can always show them.
+ */
+function parsePanel(body: string): PanelExpert[] {
+  const experts: PanelExpert[] = []
+  for (const raw of body.split(/\r?\n/)) {
+    const line = unlist(raw).trim()
+    if (line === '') continue
+    const colon = line.indexOf(':')
+    const head = colon < 0 ? line : line.slice(0, colon)
+    const rest = colon < 0 ? '' : line.slice(colon + 1).trim()
+    const split = rest.match(/^([\s\S]*)\bmethods?\s*:\s*([\s\S]*)$/i)
+    experts.push({
+      field: head.replace(/\s*\(\s*critic\s*\)\s*/i, ' ').trim(),
+      critic: /\(\s*critic\s*\)/i.test(head),
+      work: (split ? (split[1] ?? '') : rest).replace(/[\s;,.—–-]+$/, '').trim(),
+      methods: split ? (split[2] ?? '').trim() : '',
+    })
+  }
+  return experts
+}
+
+/** A draft in the answer: a deeper prompt or a panel when that is what was asked for, else a goal or loop command, or a brief. */
+function findDraft(answer: string, asked: Kind): DraftedCommand | null {
+  if (asked === 'panel') {
+    // only a ++panel request is read this way: its goal or brief blocks, if any, stay text
+    const f = fences(answer, 'panel')[0]
+    if (f === undefined || f.body === '') return null
+    // what it says outside the block: the re-check saw a plan-changing assumption there in 194 characters
+    const note = `${answer.slice(0, f.start)} ${answer.slice(f.end)}`.replace(/\s+/g, ' ').trim()
+    return { kind: 'panel', args: f.body, parts: [], experts: parsePanel(f.body), note }
+  }
+  if (asked === 'deep') {
+    // only a ++deep request is read this way, and its card wins over any other block in the reply
+    const lens = fences(answer, 'deep').find(f => f.body !== '')
+    // the rewrite is the prompt block after the four answers; a quoted "your prompt" before them is not it
+    const prompts = fences(answer, 'prompt').filter(f => f.body !== '')
+    const rewrite = prompts.find(f => f.start >= (lens?.end ?? 0)) ?? prompts.at(-1)
+    return lens === undefined && rewrite === undefined
+      ? null
+      : { kind: 'deep', args: rewrite?.body ?? '', parts: parseParts(lens?.body ?? null) }
+  }
   for (const kind of ['goal', 'loop'] as const) {
     const body = block(answer, kind)
     if (body !== null) {
@@ -333,10 +451,20 @@ export const register: Register = (on, options) => {
       description: 'Check a request for gaps, then draft a safe, self-stopping /loop (same as ++loop or ++l)',
       argumentHint: '<request>',
     })
+    await $.command.register({
+      name: 'deepen',
+      description: 'Say how a top professional would do a request, then rewrite it deeper, not bigger (same as ++deep or ++d)',
+      argumentHint: '<request>',
+    })
+    await $.command.register({
+      name: 'panel',
+      description: 'Pick five experts from different fields, two of them critics; the work starts with their methods when you press Go (same as ++panel or ++p)',
+      argumentHint: '<request>',
+    })
     return next(e)
   })
 
-  // "++goal …", "++loop …" or "++ …": attach the instruction, send the request as you wrote it.
+  // "++goal …", "++loop …", "++deep …", "++panel …" or "++ …": attach the instruction, send the request as you wrote it.
   on('prompt.submit', async ($, e, next) => {
     const isYours =
       e.origin.kind === 'composer' || (e.origin.kind === 'plugin' && e.origin.name === 'prompt-enhancer')
@@ -350,24 +478,49 @@ export const register: Register = (on, options) => {
       return { drop: why ?? 'Checking your grammar. Nothing is sent to Claude.' }
     }
     if (!text.startsWith('++')) {
-      // Your next prompt after a brief (a go-ahead or a correction) settles its card.
-      if (e.origin.kind === 'composer' && (await read($, ready))?.kind === 'brief') await update($, ready, () => null)
+      const settles = (await read($, ready))?.kind
+      // A panel correction, from ✎ Correct or typed by hand while the panel card waits: the revised
+      // five come back in the shape the card reads, as a new card.
+      if (text.startsWith(PANEL_FIX.trim()) && (settles === 'panel' || (await read($, drafting))?.kind === 'panel')) {
+        await update($, ready, () => null)
+        await update($, drafting, () => ({ kind: 'panel', turnsLeft: DRAFT_TURNS }))
+        return next({ ...e, context: [...(e.context ?? []), PANEL_REVISE] })
+      }
+      // Your next prompt after a brief, a panel or a deeper prompt (a go-ahead, a correction, the rewrite itself) settles its card.
+      if (e.origin.kind === 'composer' && (settles === 'brief' || settles === 'panel' || settles === 'deep')) await update($, ready, () => null)
       return next(e)
     }
     // "++goal" / "++loop", or the short "++g" / "++l": the letter right after "++" and then a space,
-    // so "++ go ahead" and "++loose ideas" stay ordinary briefs.
-    const m = text.match(/^\+\+(?:\s*(goal|loop)\b[:\s]*|([gl])(?:\s+|$))/i)
-    const word = (m?.[1] ?? m?.[2])?.toLowerCase()
-    const kind: Kind = word === undefined ? 'brief' : word.startsWith('g') ? 'goal' : 'loop'
+    // so "++ go ahead" and "++loose ideas" stay ordinary briefs. "++deep" / "++d" and "++panel" / "++p"
+    // must touch the "++" too, so "++ deep dive", "++deeper", "++do", "++ panel notes" and "++please" stay briefs.
+    // A word or letter counts only when a space, a colon or the end follows it: "++deep-dive", "++goal-setting",
+    // "++panel's" and "++deep, then" are briefs (a hyphen or comma once started the mode with "-dive" as the request).
+    const m = text.match(/^\+\+(?:\s*(goal|loop)(?=[\s:]|$)[:\s]*|(deep|panel)(?=[\s:]|$)[:\s]*|([gldp])(?::\s*|\s+|$))/i)
+    const word = (m?.[1] ?? m?.[2] ?? m?.[3])?.toLowerCase()
+    const kind: Kind =
+      word === undefined
+        ? 'brief'
+        : word.startsWith('d')
+          ? 'deep'
+          : word.startsWith('p')
+            ? 'panel'
+            : word.startsWith('g')
+              ? 'goal'
+              : 'loop'
     const request = text.slice(m ? m[0].length : 2).trim()
     if (request === '') return next(e)
-    await update($, drafting, () => ({ kind, turnsLeft: DRAFT_TURNS }))
+    await update($, drafting, () => ({ kind, turnsLeft: DRAFT_TURNS, words: wordCount(request) }))
     await update($, ready, () => null)
     let instruction: string = INSTRUCTION[kind]
     if (kind !== 'brief') {
       const names = await userOnlySkills($).catch(() => [])
-      if (names.length > 0) {
-        instruction += `\nUser-only skills here (Claude cannot call them, and a loop pass gets them as plain text): ${names.map(n => `/${n}`).join(', ')}. If a step needs one, do not rebuild its steps: say in one line that I must type it myself, and leave that step out.`
+      const list = names.map(n => `/${n}`).join(', ')
+      if (names.length > 0 && kind === 'deep') {
+        instruction += `\nUser-only skills here (Claude cannot call them): ${list}. If a method needs one, the rewrite says I type it myself; do not rebuild its steps.`
+      } else if (names.length > 0 && kind === 'panel') {
+        instruction += `\nUser-only skills here (Claude cannot call them): ${list}. If a method needs one, say in one line that I must type it myself; do not rebuild its steps.`
+      } else if (names.length > 0) {
+        instruction += `\nUser-only skills here (Claude cannot call them, and a loop pass gets them as plain text): ${list}. If a step needs one, do not rebuild its steps: say in one line that I must type it myself, and leave that step out.`
       }
     }
     return next({ ...e, text: request, context: [...(e.context ?? []), instruction] })
@@ -377,6 +530,8 @@ export const register: Register = (on, options) => {
     ['clarify', '++', ''],
     ['goalify', '++goal', ' (or ++g)'],
     ['loopify', '++loop', ' (or ++l)'],
+    ['deepen', '++deep', ' (or ++d)'],
+    ['panel', '++panel', ' (or ++p)'],
   ] as const) {
     on('command.run', { command: name }, async ($, e) => {
       const request = e.args.trim()
@@ -403,25 +558,29 @@ export const register: Register = (on, options) => {
     const d = await read($, drafting)
     if (d === null || e.agentId !== undefined) return result
     // A loop request may come back as a goal when that fits better: take either.
-    const found = findDraft(e.answer)
+    const found = findDraft(e.answer, d.kind)
     if (found !== null) {
       await update($, drafting, () => null)
-      // the card checks a goal or loop against the user-only skills: know them before it draws
+      // the card checks a goal, loop, rewrite or panel against the user-only skills: know them before it draws
       if (found.kind !== 'brief' && userOnly === null) await userOnlySkills($).catch(() => [])
-      await update($, ready, () => found)
-      if (found.kind !== 'brief') {
+      await update($, ready, () => (found.kind === 'deep' ? { ...found, words: d.words } : found))
+      // a brief or a panel waits on the card for your go-ahead: nothing goes in the box
+      if (found.kind !== 'brief' && found.kind !== 'panel' && found.args !== '') {
         // Only into an empty box: what you typed while Claude drafted stays.
+        const what = found.kind === 'deep' ? 'Deeper prompt' : `/${found.kind}`
         const box = await boxState($)
         const filled =
           box === 'free'
-            ? await $.prompt.fill({ text: `/${found.kind} ${found.args}`, mode: 'replace' }).catch(() => undefined)
+            ? await $.prompt
+                .fill({ text: found.kind === 'deep' ? found.args : `/${found.kind} ${found.args}`, mode: 'replace' })
+                .catch(() => undefined)
             : undefined
         $.ui.toast(
           filled?.isFilled
-            ? `/${found.kind} ready in the prompt box: check it, then Enter`
+            ? `${what} ready in the prompt box: check it, then Enter`
             : box === 'yours'
-              ? `/${found.kind} ready above the prompt; your typing was left in the box`
-              : `/${found.kind} ready above the prompt`,
+              ? `${what} ready above the prompt; your typing was left in the box`
+              : `${what} ready above the prompt`,
         )
       }
     } else {
@@ -436,10 +595,24 @@ export const register: Register = (on, options) => {
     if (r === null || e.props.hasSurvey) return next(e)
     const { Box, Text, Button } = $.ui.resolve(e)
     const kind = r.kind
-    const accent = kind === 'brief' ? 'blue' : 'cyan'
-    const title = kind === 'brief' ? ' 📋 BRIEF ' : kind === 'goal' ? ' ◎ GOAL READY ' : ' ↻ LOOP READY '
+    const accent = kind === 'brief' || kind === 'panel' ? 'blue' : kind === 'deep' ? 'magenta' : 'cyan'
+    const title =
+      kind === 'brief'
+        ? ' 📋 BRIEF '
+        : kind === 'goal'
+          ? ' ◎ GOAL READY '
+          : kind === 'loop'
+            ? ' ↻ LOOP READY '
+            : kind === 'panel'
+              ? ' 👥 PANEL '
+              : ' ◆ DEEPER '
     const width = Math.max(30, e.props.bodyColumns - 6)
-    const labelWidth = 12
+    // "🧱 Start from" is one wider than the other names
+    const labelWidth = kind === 'deep' ? 13 : 12
+    // a deep answer may take three lines (its instruction asks for under 200 characters); the other parts one.
+    // At two lines the live trial saw 27 of 28 answers cut, one of them hiding an added deliverable.
+    // At least 240 characters, so a 200-character answer fits at 80 columns too.
+    const room = kind === 'deep' ? Math.max((width - labelWidth) * 3, 240) : width - labelWidth
 
     const byLabel = new Map(r.parts.map(p => [p.label, p.value]))
     const rows: RenderElement[] = []
@@ -455,19 +628,67 @@ export const register: Register = (on, options) => {
       rows.push(
         <Text key={`pe-row-${spec.label}`} wrap="wrap">
           <Text bold color={accent}>
-            {name.padEnd(labelWidth + 1)}
+            {`${name.padEnd(labelWidth)} `}
           </Text>
-          <Text>{value.length > width - labelWidth ? `${value.slice(0, width - labelWidth - 1)}…` : value}</Text>
+          <Text>{value.length > room ? `${value.slice(0, room - 1)}…` : value}</Text>
         </Text>,
       )
     }
     // What the judge or the loop could not use, read from the command text itself.
     if (kind === 'goal') gaps.push(...lintGoal(r.args, userOnly ?? []))
     if (kind === 'loop') gaps.push(...lintLoop(r.args, userOnly ?? []))
+    if (kind === 'deep') gaps.push(...lintDeep(byLabel.get('proof'), r.args, userOnly ?? []))
+    if (kind === 'panel') gaps.push(...lintPanel(r.experts ?? [], userOnly ?? [], (r.note ?? '').length))
     const tooLong = kind === 'goal' && r.args.length > GOAL_LIMIT
-    const cmd = `/${kind} ${r.args}`
+    // what this card puts in the box: the command, or for deep the rewritten prompt itself
+    const cmd = kind === 'deep' ? r.args : `/${kind} ${r.args}`
+    if (kind === 'deep' && r.args !== '') {
+      // the rewrite in full, under its own label: it is what you send, and a cut can hide an added step
+      const flat = r.args.replace(/\s+/g, ' ')
+      rows.push(
+        <Box key="pe-rewrite" flexDirection="column">
+          <Text bold color={accent}>
+            ✍ Rewrite
+          </Text>
+          <Text wrap="wrap">{flat.length > 1500 ? `${flat.slice(0, 1499)}…` : flat}</Text>
+        </Box>,
+      )
+    }
+    // a panel: one row per expert, the critics in red. The methods are what you judge before Go, so
+    // they always show in full beside the field; what the expert would do follows, dim, cut at two lines.
+    for (const [i, x] of (r.experts ?? []).entries()) {
+      const head = `${x.critic ? '🔎' : '🛠'} ${x.field}${x.critic ? ' · critic' : ''}`
+      const methods = x.methods.length > 300 ? `${x.methods.slice(0, 299)}…` : x.methods
+      rows.push(
+        <Box key={`pe-expert-${i}`} flexDirection="column">
+          <Text wrap="wrap">
+            <Text bold color={x.critic ? 'red' : accent}>
+              {head}
+            </Text>
+            {methods !== '' && <Text>{`  methods: ${methods}`}</Text>}
+          </Text>
+          {x.work !== '' && (
+            <Text dimColor wrap="wrap">
+              {`   ${x.work.length > width * 2 ? `${x.work.slice(0, width * 2 - 1)}…` : x.work}`}
+            </Text>
+          )}
+        </Box>,
+      )
+    }
+    // what the panel reply said outside its block, up to three lines: an assumption there changes the plan
+    if (kind === 'panel' && (r.note ?? '') !== '') {
+      const note = r.note ?? ''
+      rows.push(
+        <Text key="pe-note" wrap="wrap">
+          <Text bold color={accent}>
+            {'💬 Also said  '}
+          </Text>
+          <Text>{note.length > width * 3 ? `${note.slice(0, width * 3 - 1)}…` : note}</Text>
+        </Text>,
+      )
+    }
     // No labelled parts at all (an older reply): show the text itself, at most a few lines of it.
-    if (rows.length === 0) {
+    if (rows.length === 0 && kind !== 'deep') {
       rows.push(
         <Text key="pe-row-text" wrap="wrap">
           {r.args.length > 600 ? `${r.args.slice(0, 599)}…` : r.args}
@@ -493,11 +714,94 @@ export const register: Register = (on, options) => {
             key="pe-correct"
             label="✎ Correct"
             onPress={async () => {
+              // your own words in the box stay, and a box that cannot be read may hold them
+              const box = await boxState($)
+              if (box === 'yours') return void $.ui.toast('Your prompt box has text: clear it, then press ✎ Correct again')
+              if (box === 'unknown') return void $.ui.toast('Could not read the prompt box: type "Correction to the brief:" and your correction yourself')
               await close()
               await $.prompt.fill({ text: 'Correction to the brief: ', mode: 'replace' }).catch(() => undefined)
             }}
           />
           <Text>  </Text>
+          <Button key="pe-dismiss" label="Dismiss" role="dismiss" onPress={close} />
+        </Box>
+      ) : kind === 'panel' ? (
+        <Box key="pe-actions" marginTop={1}>
+          <Button
+            key="pe-go"
+            label="▶ Go"
+            variant="primary"
+            onPress={async () => {
+              await close()
+              await $.prompt.submit({ text: PANEL_GO, asUser: true })
+            }}
+          />
+          <Text>  </Text>
+          <Button
+            key="pe-correct"
+            label="✎ Correct"
+            onPress={async () => {
+              // your own words in the box stay, and a box that cannot be read may hold them
+              const box = await boxState($)
+              if (box === 'yours') return void $.ui.toast('Your prompt box has text: clear it, then press ✎ Correct again')
+              if (box === 'unknown') return void $.ui.toast(`Could not read the prompt box: type "${PANEL_FIX.trim()}" and your correction yourself`)
+              await close()
+              // the revised panel comes back as a card
+              await update($, drafting, () => ({ kind: 'panel', turnsLeft: DRAFT_TURNS }))
+              await $.prompt.fill({ text: PANEL_FIX, mode: 'replace' }).catch(() => undefined)
+            }}
+          />
+          <Text>  </Text>
+          <Button key="pe-dismiss" label="Dismiss" role="dismiss" onPress={close} />
+        </Box>
+      ) : kind === 'deep' ? (
+        <Box key="pe-actions" marginTop={1}>
+          {r.args !== '' && (
+            <Button
+              key="pe-send"
+              label="▶ Send"
+              variant="primary"
+              onPress={async () => {
+                const box = await boxState($, cmd)
+                // other words in the box may be your edit of the rewrite: never send the old one over them
+                if (box === 'yours') return void $.ui.toast('Your prompt box has text: send it with Enter, or clear it and press ▶ Send')
+                await close()
+                // clear the box only when it holds this rewrite
+                if (box === 'free') await $.prompt.fill({ text: '', mode: 'replace' }).catch(() => undefined)
+                await $.prompt.submit({ text: r.args, asUser: true })
+              }}
+            />
+          )}
+          {r.args !== '' && <Text>  </Text>}
+          {r.args !== '' && (
+            <Button
+              key="pe-edit"
+              label="✎ Edit in box"
+              onPress={async () => {
+                const box = await boxState($, cmd)
+                if (box === 'free') await $.prompt.fill({ text: cmd, mode: 'replace' }).catch(() => undefined)
+                else if (box === 'yours') $.ui.toast('Your prompt box has text: clear it, then press ✎ Edit again')
+                else $.ui.toast('Could not read the prompt box: copy the rewrite from the card')
+              }}
+            />
+          )}
+          {r.args !== '' && <Text>  </Text>}
+          {r.args !== '' && (
+            <Button
+              key="pe-asgoal"
+              label="◎ As goal"
+              onPress={async () => {
+                // the proof becomes the goal's check: ++g drafts a /goal from the rewrite, after your Enter
+                const box = await boxState($, cmd)
+                if (box === 'yours') return void $.ui.toast('Your prompt box has text: clear it, then press ◎ As goal again')
+                if (box === 'unknown') return void $.ui.toast('Could not read the prompt box: type ++g and the rewrite yourself')
+                await close()
+                await $.prompt.fill({ text: `++g ${r.args}`, mode: 'replace' }).catch(() => undefined)
+                $.ui.toast('++g and the rewrite are in the prompt box: press Enter to draft a /goal')
+              }}
+            />
+          )}
+          {r.args !== '' && <Text>  </Text>}
           <Button key="pe-dismiss" label="Dismiss" role="dismiss" onPress={close} />
         </Box>
       ) : (
@@ -545,7 +849,11 @@ export const register: Register = (on, options) => {
         ? 'the judge reads only this chat · a reached cap also counts as achieved'
         : kind === 'loop'
           ? 'runs only while this session is open and idle · ends after 7 days'
-          : null
+          : kind === 'deep'
+            ? 'deeper, not bigger · nothing starts until you send it'
+            : kind === 'panel'
+              ? 'Go starts the work with their methods · the critics check the finished result'
+              : null
 
     const mine = (
       <Box key="pe-ready" flexDirection="column" borderStyle="round" borderColor={gaps.length > 0 ? 'yellow' : accent} paddingX={1}>
@@ -553,7 +861,13 @@ export const register: Register = (on, options) => {
           <Text bold color="black" backgroundColor={accent}>
             {title}
           </Text>
-          <Text dimColor>{kind === 'brief' ? '  nothing starts until you say go' : `  /${kind} · ${r.args.length} chars`}</Text>
+          <Text dimColor>
+            {kind === 'brief' || kind === 'panel'
+              ? '  nothing starts until you say go'
+              : kind === 'deep'
+                ? `  ${r.words === undefined ? '' : `your ${r.words} words → `}${wordCount(r.args)} words`
+                : `  /${kind} · ${r.args.length} chars`}
+          </Text>
         </Box>
         {rows}
         {gaps.map(g => (

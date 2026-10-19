@@ -55,6 +55,8 @@ for (const [command, prefix] of [
   ['goalify', '++goal'],
   ['loopify', '++loop'],
   ['clarify', '++'],
+  ['deepen', '++deep'],
+  ['panel', '++panel'],
 ] as const) {
   test(`/${command} puts "${prefix} <request>" in the prompt box for you to send`, async ($, on) => {
     bottom(on)
@@ -89,4 +91,20 @@ test('/goalify with no request names both prefixes', async ($, on) => {
   bottom(on)
   const r = await $.command.run({ command: 'goalify', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
   expect(JSON.stringify(r)).toContain('start a prompt with ++goal (or ++g)')
+})
+
+test('/deepen and /panel are registered, and with no request name both prefixes', async ($, on) => {
+  const names: string[] = []
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('command.register', (_$, e) => {
+    names.push(e.name)
+    return { value: { command: e.name } }
+  })
+  await $.session.start({ cwd: 'C:/work/vault', surface: 'terminal', isInteractive: true })
+  expect(names).toContain('deepen')
+  expect(names).toContain('panel')
+  const r = await $.command.run({ command: 'deepen', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
+  expect(JSON.stringify(r)).toContain('start a prompt with ++deep (or ++d)')
+  const p = await $.command.run({ command: 'panel', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
+  expect(JSON.stringify(p)).toContain('start a prompt with ++panel (or ++p)')
 })

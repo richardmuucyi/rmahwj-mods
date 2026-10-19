@@ -89,7 +89,9 @@ function bottom(on: On, files: Map<string, string>, repo: Repo) {
   on('turn.step', async function* (_$, e) {
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn' as never, usage: null }
   })
-  on('agent.spawn', () => ({ model: 'claude-haiku-4-5-20251001', agentId: 'a1' }))
+  // one id per spawn (a1, a2, ...), so two agents are two agents
+  let spawned = 0
+  on('agent.spawn', () => ({ model: 'claude-haiku-4-5-20251001', agentId: `a${++spawned}` }))
   on('process.run', (_$, e) => {
     const argv = [...e.argv]
     repo.runs.push(argv)
@@ -556,6 +558,66 @@ for (const surface of ['terminal', 'desktop'] as const) {
     } as never)
     await clock.advance(5_000)
     expect(await chip(BAND.bodyColumns)).toBe('◈ 1 agent · 1 task')
+  })
+
+  test(`a background agent the last Stop did not list still counts as an agent on the ◈ chip, not a task (${surface})`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    const files = new Map<string, string>()
+    const repo: Repo = { isRepo: false, status: [], numstat: [], runs: [] }
+    bottom(on, files, repo)
+    on('tool.call', () => ({ result: 'ok' }))
+    await $.session.start({ cwd: '/home/me/vault', surface, isInteractive: true })
+    await $.turn.start({ text: 'Go', turnId: 't1' })
+    await clock.advance(5_000)
+    const chip = async (bodyColumns: number) => {
+      const band = await $.ui.mount({ plugin: 'session-board', surface, component: 'AbovePrompt', props: { ...BAND, bodyColumns, isWorking: false } })
+      const drawn = await band.find({ key: 'sb-strip' })
+      await band.unmount()
+      return chipsOf(drawn).map(c => c[1].trim()).find(t => t.startsWith('◈')) ?? ''
+    }
+    // Two background agents; the Stop lists only the first. The second is still running, so the chip's total holds
+    // it, and the one item no listed kind accounts for is an agent.
+    await $.agent.spawn({ prompt: 'find', description: 'Scan the vault', subagentType: 'Explore', background: true } as never)
+    await $.agent.spawn({ prompt: 'check', description: 'Check the links', subagentType: 'Explore', background: true } as never)
+    await clock.advance(5_000)
+    await $.turn.complete({ answer: 'ok', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
+    await $.classic.Stop({
+      stop_hook_active: false,
+      background_tasks: [{ id: 'a1', type: 'subagent', status: 'running', description: 'Scan the vault' }],
+    })
+    await clock.advance(5_000)
+    expect(await chip(BAND.bodyColumns)).toBe('◈ 2 agents')
+    expect(await chip(50)).toBe('◈2a')
+  })
+
+  test(`background agents the last Stop did not list add to a listed job on the ◈ chip, none dropped (${surface})`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    const files = new Map<string, string>()
+    const repo: Repo = { isRepo: false, status: [], numstat: [], runs: [] }
+    bottom(on, files, repo)
+    on('tool.call', () => ({ result: 'ok' }))
+    await $.session.start({ cwd: '/home/me/vault', surface, isInteractive: true })
+    await $.turn.start({ text: 'Go', turnId: 't1' })
+    await clock.advance(5_000)
+    const chip = async (bodyColumns: number) => {
+      const band = await $.ui.mount({ plugin: 'session-board', surface, component: 'AbovePrompt', props: { ...BAND, bodyColumns, isWorking: false } })
+      const drawn = await band.find({ key: 'sb-strip' })
+      await band.unmount()
+      return chipsOf(drawn).map(c => c[1].trim()).find(t => t.startsWith('◈')) ?? ''
+    }
+    // Two background agents; the Stop lists only a shell. Both agents still run, so both count beside the job (before
+    // the fix the job's place in the total hid one of them: "1 job · 1 agent").
+    await $.agent.spawn({ prompt: 'find', description: 'Scan the vault', subagentType: 'Explore', background: true } as never)
+    await $.agent.spawn({ prompt: 'check', description: 'Check the links', subagentType: 'Explore', background: true } as never)
+    await clock.advance(5_000)
+    await $.turn.complete({ answer: 'ok', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
+    await $.classic.Stop({
+      stop_hook_active: false,
+      background_tasks: [{ id: 's1', type: 'shell', status: 'running', description: 'npm run dev' }],
+    })
+    await clock.advance(5_000)
+    expect(await chip(BAND.bodyColumns)).toBe('◈ 1 job · 2 agents')
+    expect(await chip(50)).toBe('◈1j 2a')
   })
 
   // ── 0.29.0: background work while a turn runs, how long each has run, and a reload that keeps the engine's ids ──
