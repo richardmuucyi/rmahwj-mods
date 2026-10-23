@@ -1,5 +1,23 @@
 /** One expert on a ++panel card: the field, whether their job is to find what is wrong, what they would do, and with which methods. */
-export type PanelExpert = { field: string; critic: boolean; work: string; methods: string }
+export type PanelExpert = {
+  field: string
+  critic: boolean
+  work: string
+  methods: string
+  /** "nearest step: …" when a method needs something Claude lacks; shown in full on the card. */
+  swap?: string
+  /** "cannot measure: …": what that nearer step cannot see. */
+  limit?: string
+}
+
+/** One reader of a ++panel's result (a person, an agent, a team), the test that settles it for them, and the words of the request it quotes. */
+export type PanelDone = {
+  reader: string
+  test: string
+  quotes?: string[]
+  /** "(implied)": a reader the request implies but never names, so there are none of its words to quote. */
+  implied?: boolean
+}
 
 /** A draft Claude wrote for you: a brief or a panel to approve, a /goal or /loop to start, or a deeper prompt to send. */
 export type DraftedCommand = {
@@ -12,6 +30,10 @@ export type DraftedCommand = {
   words?: number
   /** For a panel: the experts, one per line Claude wrote. */
   experts?: PanelExpert[]
+  /** For a panel: one "Done when, <reader>: <test>" line per reader of the result. */
+  done?: PanelDone[]
+  /** For a panel: your request, word for word, as you sent it. Go hands it to the work, so the result is judged against it. */
+  request?: string
   /** For a panel: what the reply says outside the panel block, spaces collapsed. It may settle a choice you never made, so the card shows it. */
   note?: string
 }
@@ -51,7 +73,9 @@ declare module 'claude-code' {
       /** A draft waiting for you; null for none. */
       ready: DraftedCommand | null
       /** What is being drafted and how many turns are left to catch it; null when nothing is. */
-      drafting: { kind: 'brief' | 'goal' | 'loop' | 'deep' | 'panel'; turnsLeft: number; words?: number } | null
+      drafting: { kind: 'brief' | 'goal' | 'loop' | 'deep' | 'panel'; turnsLeft: number; words?: number; request?: string } | null
+      /** After a panel's Go: the request the work must be traced back to, checked when that turn ends; null otherwise. */
+      tracing: { request: string; needs: { quote: string; person: boolean }[]; turns: number } | null
       /** The `==` grammar card; null for none. */
       grammar: GrammarCard | null
     }

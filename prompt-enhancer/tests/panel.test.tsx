@@ -64,11 +64,18 @@ const PANEL =
   "1. Instructional designer: maps the tasks a new hire does in week one; methods: task analysis, Bloom's levels\n" +
   '2. **Technical writer**: turns each task into numbered steps; methods: plain-language review, readability score\n' +
   '3. Support lead: lists the ten questions new hires ask most; methods: ticket tag counts\n' +
-  '4. Usability tester (critic): watches two people follow it cold; methods: think-aloud test, task success rate\n' +
-  '5. Security reviewer (critic): checks every step for leaked secrets and unsafe defaults; methods: secret scan, least-privilege review'
+  '4. Usability tester (critic): watches two people follow it cold; methods: think-aloud test, task success rate; nearest step: a fresh subagent follows it; cannot measure: where a person gets lost\n' +
+  '5. Security reviewer (critic): checks every step for leaked secrets and unsafe defaults; methods: secret scan, least-privilege review\n' +
+  '6. Done when, new hire ("write the onboarding guide"): they finish onboarding with the guide: say what the product is for and set up the dev machine; test: they follow it cold, run by you\n' +
+  '7. **Done when (agent)**: a fresh agent does the same setup from the guide alone; test: cold-start run, run by me'
 const ANSWER = `Here is the panel.\n\`\`\`panel\n${PANEL}\n\`\`\``
-const GO =
-  "Go ahead with the panel above: do the work with their methods, not their voices. Run each method with your tools where you can, and show its real result (its output, a count, a quote); if one cannot run here, say so in one line rather than describe a result. If a search finds nothing, widen it before you say a file does not exist. Where the panel left a choice open, take the safest option and name it. Run the two critics' methods after the final text is written, on that text, and report what they found and what you changed."
+// the fixed part of what ▶ Go sends; your request follows it word for word
+const GO_HEAD =
+  "Go ahead with the panel above: do the work with their methods, not their voices. Run each method with your tools where you can, and show its real result (its output, a count, a quote); if one cannot run here, say so in one line rather than describe a result. Where a method ran as its nearest step, report the result as that step's and repeat what it cannot measure. If a search finds nothing, widen it before you say a file does not exist. Where the panel left a choice open, take the safest option and name it. Run the two critics' methods after the final text is written, on that text, and report what they found and what you changed. Before you finish, run each done-when test you can, report pass or fail with its result, and list each one you could not run and who must run it."
+const TRACE_RULE =
+  'Before your final reply, give a fresh subagent only my request, word for word, and the finished result, and have it write one row per thing my request asks for: my words, where the result meets them (a short quote), and present, partly or absent. Add the person mark yourself: "person: yes" only when a person checked that need, "person: no" when a person should and did not, "person: n/a" when no person is involved. End with the rows in a fenced code block tagged trace: "<my words>" | <where the result meets it, quoted> | present / partly / absent | person: yes / no / n/a. Never mark present what the subagent did not find.'
+const GO = (request: string) =>
+  `${GO_HEAD} Give my request below, word for word, to every subagent you use, and have the critics judge the result against it, not only against the plan. ${TRACE_RULE}\n\nMy request, word for word:\n<<<\n${request}\n>>>`
 
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`++panel: the five experts come back as a card; nothing starts until ▶ Go, which sends the work rules (${surface})`, async ($, on) => {
@@ -82,7 +89,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     )
     expect(instruction).not.toContain('Then do that work')
     expect(instruction).toContain('Name each by field, not as an invented person')
-    expect(instruction).toContain('Pick methods you can carry out here')
+    expect(instruction).toContain('Pick methods that test what each reader needs')
     expect(instruction).toContain('fenced code block tagged panel')
     expect(instruction).toContain('"(critic)" after it for the two critics')
     expect(instruction).toContain("When I say go, do the work. Don't role-play them, use their methods.")
@@ -94,6 +101,23 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(instruction).toContain('("think-aloud test", not "best practices")')
     expect(instruction).toContain('Run each method with your tools where you can, and show its real result (its output, a count, a quote); if a method cannot run here, say so in one line')
     expect(instruction).toContain('If a search finds nothing, widen it before you say a file does not exist.')
+    // 2026-10-21: a swapped method says what it cannot measure; every reader gets a done-when test
+    expect(instruction).toContain('name the nearest step you can do, and say what that step cannot measure')
+    expect(instruction).toContain('Name every reader of the result')
+    expect(instruction).toContain('not only the one you can test here')
+    expect(instruction).toContain('Each done-when line starts "Done when, <reader> ("<my words about that reader>"):"')
+    // 2026-10-21 replay and review: the person's test quotes the request, a person runs it, and the work traces back to it
+    expect(instruction).toContain('quotes, in double quotes, the words of my request that say what that reader needs')
+    expect(instruction).toContain("A person's test is run by a person")
+    expect(instruction).toContain('In those lines "the owner" is me and "Claude" is you')
+    expect(instruction).toContain('Give my request, word for word, to every subagent you use')
+    expect(instruction).toContain('judge it against my request')
+    expect(instruction).toContain('give a fresh subagent only my request, word for word, and the finished result')
+    expect(instruction).toContain('Never mark present what the subagent did not find')
+    expect(instruction).toContain('a test that checks those very words')
+    expect(instruction).toContain('a stated limit never replaces that')
+    expect(instruction).toContain("report the result as that step's and repeat what it cannot measure beside it")
+    expect(instruction).toContain('Before you finish, run each done-when test you can, report pass or fail')
 
     await reply($, ANSWER)
     expect(r.box).toBe('') // a panel waits on the card: nothing goes in the box
@@ -106,13 +130,21 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(text).toContain("🛠 Instructional designer methods: task analysis, Bloom's levels maps the tasks a new hire does in week one")
     expect(text).toContain('🛠 Technical writer methods: plain-language review, readability score turns each task') // list marker and bold dropped
     expect(text).toContain('🔎 Usability tester · critic methods: think-aloud test, task success rate watches two people follow it cold')
+    // the swap and its limit get a row of their own, in full, so the card never cuts the limit off
+    expect(text).toContain('↳ nearest step: a fresh subagent follows it · cannot measure: where a person gets lost')
     expect(text).toContain('🔎 Security reviewer · critic methods: secret scan, least-privilege review checks every step')
+    // the done-when lines are readers' tests, not experts: one row each, list marker and bold dropped
+    expect(text).toContain(
+      '✓ Done when · new hire “write the onboarding guide” they finish onboarding with the guide: say what the product is for and set up the dev machine; test: they follow it cold, run by you',
+    )
+    expect(text).toContain('✓ Done when · agent a fresh agent does the same setup from the guide alone; test: cold-start run, run by me')
     expect(text).toContain('Go starts the work with their methods · the critics check the finished result')
     expect(text).not.toContain('⚠')
     for (const key of ['pe-go', 'pe-correct', 'pe-dismiss']) expect(Boolean(await b.find({ key }))).toBe(true)
 
     await b.press({ key: 'pe-go' })
-    expect(r.seen.at(-1)).toEqual({ text: GO, context: [] })
+    // your request goes with Go, word for word, and the work must end with a trace back to it
+    expect(r.seen.at(-1)).toEqual({ text: GO('write the onboarding guide'), context: [] })
     expect(Boolean(await b.find({ key: 'pe-ready' }))).toBe(false)
     await b.unmount()
   })
@@ -129,7 +161,7 @@ test('✎ Correct puts "Correction to the panel: " in the box; sent, it asks for
   await b.unmount()
   await $.prompt.submit({ text: 'Correction to the panel: swap the support lead for a new hire', origin: { kind: 'composer' }, wait: false })
   expect(r.seen.at(-1)!.text).toBe('Correction to the panel: swap the support lead for a new hire')
-  expect(r.seen.at(-1)!.context.join('\n')).toContain('reply with all five again in a fenced code block tagged panel')
+  expect(r.seen.at(-1)!.context.join('\n')).toContain('reply with all five again, and the done-when lines, in a fenced code block tagged panel')
   const revised = PANEL.replace('3. Support lead: lists the ten questions new hires ask most', '3. Recent new hire: reads the draft on day one')
   await reply($, `Revised.\n\`\`\`panel\n${revised}\n\`\`\``, 2)
   b = await mount($)
@@ -150,7 +182,7 @@ test('✎ Correct leaves your own words in the box; a correction typed while the
   await b.unmount()
   // typed by hand while the card waits: the instruction asks for "my corrections", so this is one
   await $.prompt.submit({ text: 'Correction to the panel: more security', origin: { kind: 'composer' }, wait: false })
-  expect(r.seen.at(-1)!.context.join('\n')).toContain('reply with all five again in a fenced code block tagged panel')
+  expect(r.seen.at(-1)!.context.join('\n')).toContain('reply with all five again, and the done-when lines, in a fenced code block tagged panel')
   b = await mount($)
   expect(Boolean(await b.find({ key: 'pe-ready' }))).toBe(false) // the old card is settled
   await b.unmount()
@@ -162,11 +194,13 @@ test('✎ Correct leaves your own words in the box; a correction typed while the
 
 test('what the reply says outside the panel block shows on the card: the re-check assumption is visible before Go', async ($, on) => {
   bottom(on)
+  // the done-when quote must come from this request
+  const AWS = PANEL.replace('("write the onboarding guide")', '(implied)')
   await $.prompt.submit({ text: '++p plan my AWS study evenings', origin: { kind: 'composer' }, wait: false })
   // the line from the live re-check (2026-10-19): 194 characters, under the warning, and it changes the plan
   const assumption =
     "Assumption (correct me if wrong): your 21:00–22:00 block only fits 10 hours over 10 weekdays (Oct 19–30), so I'll plan for 1.5× playback and a few evening overflow slots between 19:30 and 20:30."
-  await reply($, `\`\`\`panel\n${PANEL}\n\`\`\`\n\n${assumption}`)
+  await reply($, `\`\`\`panel\n${AWS}\n\`\`\`\n\n${assumption}`)
   let b = await mount($)
   let text = fold((await b.find({ key: 'pe-ready' }))?.text)
   expect(text).toContain(`💬 Also said ${assumption}`)
@@ -174,7 +208,7 @@ test('what the reply says outside the panel block shows on the card: the re-chec
   await b.unmount()
   // a reply with nothing outside the block has no note row
   await $.prompt.submit({ text: '++p plan my AWS study evenings', origin: { kind: 'composer' }, wait: false })
-  await reply($, `\`\`\`panel\n${PANEL}\n\`\`\``, 2)
+  await reply($, `\`\`\`panel\n${AWS}\n\`\`\``, 2)
   b = await mount($)
   expect(Boolean(await b.find({ key: 'pe-note' }))).toBe(false)
   await b.unmount()
@@ -283,4 +317,173 @@ test('++panel names the user-only skills, as methods you type yourself', async (
   expect(r.seen.at(-1)!.context.join('\n')).toContain(
     'User-only skills here (Claude cannot call them): /tutor. If a method needs one, say in one line that I must type it myself',
   )
+})
+
+// The usability critic from the 2026-10-20 onboarding run, word for word: a subagent stood in for
+// people and nothing said what it could not measure, so the runbook was judged by agents alone.
+const SWAPPED =
+  '4. Usability tester (critic): has a fresh agent use only the runbook to fix a real closed bug; methods: cold-start task success, stall-point log (a human think-aloud needs a person; a fresh subagent is the nearest step)'
+
+test('a method swapped for a nearer step is flagged until it says what that step cannot measure', async ($, on) => {
+  bottom(on)
+  await $.prompt.submit({ text: '++panel write the onboarding guide', origin: { kind: 'composer' }, wait: false })
+  const swapped = PANEL.replace(/^4\. Usability tester.*$/m, SWAPPED)
+  await reply($, `\`\`\`panel\n${swapped}\n\`\`\``)
+  let b = await mount($)
+  let text = fold((await b.find({ key: 'pe-ready' }))?.text)
+  expect(text).toContain('⚠ Usability tester: names a nearer step but not what it cannot measure')
+  await b.unmount()
+  // the same line with its limit stated passes
+  await $.prompt.submit({ text: '++panel write the onboarding guide', origin: { kind: 'composer' }, wait: false })
+  const stated = PANEL.replace(/^4\. Usability tester.*$/m, `${SWAPPED}; cannot measure: whether a person gets oriented`)
+  await reply($, `\`\`\`panel\n${stated}\n\`\`\``, 2)
+  b = await mount($)
+  text = fold((await b.find({ key: 'pe-ready' }))?.text)
+  expect(text).toContain('cannot measure: whether a person gets oriented') // shown with the methods, before Go
+  expect(text).not.toContain('⚠')
+  await b.unmount()
+})
+
+test('a panel with no done-when line, or one with no reader or no test, is flagged; no line is read as a sixth expert', async ($, on) => {
+  bottom(on)
+  await $.prompt.submit({ text: '++panel write the onboarding guide', origin: { kind: 'composer' }, wait: false })
+  const five = PANEL.split('\n').slice(0, 5).join('\n')
+  await reply($, `\`\`\`panel\n${five}\n\`\`\``)
+  let b = await mount($)
+  let text = fold((await b.find({ key: 'pe-ready' }))?.text)
+  expect(text).toContain('⚠ no "Done when, <reader>:" line: name each reader of the result and the test that settles it')
+  expect(Boolean(await b.find({ key: 'pe-done-0' }))).toBe(false)
+  await b.unmount()
+  await $.prompt.submit({ text: '++panel write the onboarding guide', origin: { kind: 'composer' }, wait: false })
+  await reply($, `\`\`\`panel\n${five}\nDone when: it reads well\nDone when, team lead: none\n\`\`\``, 2)
+  b = await mount($)
+  text = fold((await b.find({ key: 'pe-ready' }))?.text)
+  expect(text).toContain('⚠ a done-when line names no reader: "it reads well"')
+  expect(text).toContain('⚠ Done when, team lead: no test')
+  expect(text).not.toContain('experts, not five')
+  await b.unmount()
+})
+
+// ── 0.9.2: the result is held to your own words (2026-10-21 replay and hostile review) ─────────
+
+// his request in the run that drifted, as the reviewer's probe sent it
+const DRIFT_REQUEST =
+  'how can a first joiner who know nothing about the domain knowledge and tech stack onboard to this codebase with AI help? give me a runbook'
+// the reviewer's panel, word for word: every 0.9.1 check passed it, and it repeats the drift
+const DRIFT_PANEL = [
+  'Developer-experience engineer: maps the repo and writes a first-day path through it; methods: dependency graph from package files, entry-point trace, task analysis',
+  'Technical writer: turns the path into numbered steps with copy-paste commands; methods: plain-language review, readability score',
+  'AI-pairing specialist: writes the prompts a newcomer pastes into Claude at each step; methods: prompt templates, cold-start run with a fresh subagent',
+  'Usability tester (critic): has a fresh subagent with no context follow the runbook and logs each stall; methods: cold-start task success rate, stall-point log',
+  'Security reviewer (critic): checks every step for leaked secrets and unsafe defaults; methods: secret scan, least-privilege review',
+  'Done when, first joiner: they run the app and fix a starter bug from the runbook alone; test: a fresh subagent follows it cold',
+  'Done when, agent: a fresh agent fixes the same bug from the runbook alone; test: cold-start run',
+].join('\n')
+
+test("the panel that drifted is flagged: the first joiner is tested by an agent and never held to the request's words", async ($, on) => {
+  bottom(on)
+  await $.prompt.submit({ text: `++panel ${DRIFT_REQUEST}`, origin: { kind: 'composer' }, wait: false })
+  await reply($, `\`\`\`panel\n${DRIFT_PANEL}\n\`\`\``)
+  const b = await mount($)
+  const text = fold((await b.find({ key: 'pe-ready' }))?.text)
+  expect(text).toContain(
+    '⚠ Done when, first joiner: say who runs the test ("run by …")',
+  )
+  expect(text).toContain('⚠ Done when, first joiner: quote the words of the request this reader needs')
+  await b.unmount()
+  // the same panel with his words quoted and a person running the test passes those two checks
+  await $.prompt.submit({ text: `++panel ${DRIFT_REQUEST}`, origin: { kind: 'composer' }, wait: false })
+  const held = DRIFT_PANEL.replace(
+    'Done when, first joiner: they run the app and fix a starter bug from the runbook alone; test: a fresh subagent follows it cold',
+    'Done when, first joiner ("know nothing about the domain knowledge and tech stack"): they explain what the code is for, its domain and its stack, then fix a starter bug; test: they read it cold and explain it back, run by you',
+  )
+  await reply($, `\`\`\`panel\n${held}\n\`\`\``, 2)
+  const c = await mount($)
+  const after = fold((await c.find({ key: 'pe-ready' }))?.text)
+  expect(after).not.toContain('Done when, first joiner:')
+  expect(after).toContain('✓ Done when · first joiner “know nothing about the domain knowledge and tech stack” they explain what the code is for')
+  await c.unmount()
+})
+
+test('a typed go-ahead starts the trace check too; a typed question does not', async ($, on) => {
+  const r = bottom(on)
+  await $.prompt.submit({ text: '++panel write the onboarding guide', origin: { kind: 'composer' }, wait: false })
+  await reply($, ANSWER)
+  await $.prompt.submit({ text: 'go ahead', origin: { kind: 'composer' }, wait: false })
+  await reply($, 'Done, no trace here.', 2)
+  expect(r.toasts.at(-1)).toContain('No request trace yet')
+  const before = r.toasts.length
+  // a new ++panel ends the trace check of the work before it
+  await $.prompt.submit({ text: '++panel write the onboarding guide', origin: { kind: 'composer' }, wait: false })
+  await reply($, ANSWER, 3)
+  await $.prompt.submit({ text: 'why a security reviewer?', origin: { kind: 'composer' }, wait: false })
+  await reply($, 'Because the guide holds commands.', 4)
+  expect(r.toasts.length).toBe(before)
+  // it starts like a go-ahead but asks something: not the start of the work
+  await $.prompt.submit({ text: '++panel write the onboarding guide', origin: { kind: 'composer' }, wait: false })
+  await reply($, ANSWER, 5)
+  await $.prompt.submit({ text: 'ok, but why a security reviewer?', origin: { kind: 'composer' }, wait: false })
+  await reply($, 'Because the guide holds commands.', 6)
+  expect(r.toasts.length).toBe(before)
+})
+
+test('done-when lines are read in the forms models write them; a critic or a sentence is not one', async ($, on) => {
+  bottom(on)
+  await $.prompt.submit({ text: '++panel write the onboarding guide', origin: { kind: 'composer' }, wait: false })
+  const five = PANEL.split('\n').slice(0, 5).join('\n')
+  const lines = [
+    '- [ ] Done when, new hire ("write the onboarding guide"): they set up the machine from the onboarding guide; test: they follow it cold, run by you',
+    '*Done when*, team lead ("the onboarding guide"): they approve the onboarding guide;',
+    '  test: they read it, run by them',
+    '✓ Done when (agent): a fresh agent sets up the machine; test: cold-start run, run by me',
+    'Done when, later maintainer (implied): they spot stale steps; test: a dated review, run by them',
+  ]
+  await reply($, `\`\`\`panel\n${five}\n${lines.join('\n')}\n\`\`\``)
+  const b = await mount($)
+  const text = fold((await b.find({ key: 'pe-ready' }))?.text)
+  expect(text).toContain('✓ Done when · new hire “write the onboarding guide” they set up the machine from the onboarding guide')
+  expect(text).toContain('✓ Done when · team lead “the onboarding guide” they approve the onboarding guide; test: they read it, run by them') // the wrapped line joins its test
+  expect(text).toContain('✓ Done when · agent a fresh agent sets up the machine')
+  expect(text).toContain('✓ Done when · later maintainer (implied) they spot stale steps') // no quote needed, marked instead
+  expect(text).not.toContain('⚠')
+  await b.unmount()
+  // a critic whose field starts with "Done-when" is an expert; a sentence that only starts with "Done when" is not a done line
+  await $.prompt.submit({ text: '++panel write the onboarding guide', origin: { kind: 'composer' }, wait: false })
+  const odd = PANEL.replace(/^5\. Security reviewer.*$/m, '5. Done-when auditor (critic): checks each done-when line; methods: checklist audit, sample re-run')
+  await reply($, `\`\`\`panel\n${odd}\nDone when the new hire runs the app: test: they do\n\`\`\``, 2)
+  const c = await mount($)
+  const t2 = fold((await c.find({ key: 'pe-ready' }))?.text)
+  expect(t2).toContain('🔎 Done-when auditor · critic methods: checklist audit, sample re-run')
+  expect(t2).toContain('⚠ 6 experts, not five')
+  await c.unmount()
+})
+
+test('a nearest-step clause is split from the methods: generic methods still show, and the clause gets its own row', async ($, on) => {
+  bottom(on)
+  await $.prompt.submit({ text: '++panel write the onboarding guide', origin: { kind: 'composer' }, wait: false })
+  const generic = PANEL.replace(
+    /^4\. Usability tester.*$/m,
+    '4. Usability tester (critic): watches people follow it; methods: testing; nearest step: a fresh subagent; cannot measure: where people stall',
+  )
+  await reply($, `\`\`\`panel\n${generic}\n\`\`\``)
+  const b = await mount($)
+  const text = fold((await b.find({ key: 'pe-ready' }))?.text)
+  expect(text).toContain('⚠ Usability tester: only generic methods ("testing")')
+  expect(text).toContain('↳ nearest step: a fresh subagent · cannot measure: where people stall')
+  await b.unmount()
+})
+
+test('✎ Correct keeps your request: the revised panel is still held to your words', async ($, on) => {
+  bottom(on)
+  await $.prompt.submit({ text: '++p write the onboarding guide', origin: { kind: 'composer' }, wait: false })
+  await reply($, ANSWER)
+  const b = await mount($)
+  await b.press({ key: 'pe-correct' })
+  await b.unmount()
+  await $.prompt.submit({ text: 'Correction to the panel: swap the support lead for a new hire', origin: { kind: 'composer' }, wait: false })
+  const unquoted = PANEL.replace(' ("write the onboarding guide")', '')
+  await reply($, `\`\`\`panel\n${unquoted}\n\`\`\``, 2)
+  const c = await mount($)
+  expect(fold((await c.find({ key: 'pe-ready' }))?.text)).toContain('⚠ Done when, new hire: quote the words of the request this reader needs')
+  await c.unmount()
 })

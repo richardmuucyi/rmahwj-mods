@@ -36,6 +36,17 @@ export type Gauge = {
   model?: string
   effort?: string
   /**
+   * What the person had selected (/model, /effort, env and settings) when the latest main request went out. A model or
+   * effort the request did not send is drawn on its chip in the theme's warning colour. `effort` is absent when none was
+   * set or the request sent none.
+   */
+  selected?: { model?: string; effort?: string }
+  /**
+   * The selection as the latest refresh (every 15 s, at session start, after each turn) read it. When it differs from
+   * `selected`, the person picked again since the last request, and the chips show the new pick in their plain colours.
+   */
+  pick?: { model?: string; effort?: string }
+  /**
    * The engine has no figure from a compaction until the next response: `estimated` marks the stand-in, the
    * compaction's own `tokensAfter` plus the overhead from the context breakdown. The engine's real figure replaces it.
    */

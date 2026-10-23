@@ -1,10 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, ModelCompleteResult, Register, RenderElement } from 'claude-code'
 
-import type { DraftedCommand, GrammarCard, PanelExpert } from '../types'
+import type { DraftedCommand, GrammarCard, PanelDone, PanelExpert } from '../types'
 import { EFFORT, MAX_TOKENS, MODEL, SYSTEM, TIMEOUT_MS, eligible, frame, label, parseCheck, review, rows } from './grammar'
 import type { Check, Seg } from './grammar'
-import { DEEP_WORDS, GOAL_LIMIT, lintDeep, lintGoal, lintLoop, lintPanel, userOnlyName, wordCount } from './lint'
+import { DEEP_WORDS, GOAL_LIMIT, isPersonReader, lintDeep, lintGoal, lintLoop, lintPanel, userOnlyName, wordCount } from './lint'
 
 // `++` makes no extra model call: each feature attaches a short instruction to
 // your own prompt, and the session's Claude, with everything it already has
@@ -17,6 +17,7 @@ import { DEEP_WORDS, GOAL_LIMIT, lintDeep, lintGoal, lintLoop, lintPanel, userOn
 
 const ready = atom({ plugin: 'prompt-enhancer', key: 'ready' } as const, null)
 const drafting = atom({ plugin: 'prompt-enhancer', key: 'drafting' } as const, null)
+const tracing = atom({ plugin: 'prompt-enhancer', key: 'tracing' } as const, null)
 const grammar = atom({ plugin: 'prompt-enhancer', key: 'grammar' } as const, null)
 
 type Kind = 'brief' | 'goal' | 'loop' | 'deep' | 'panel'
@@ -165,34 +166,121 @@ proof: …
 then the rewritten prompt alone in a fenced code block tagged prompt.`
 
 /**
+ * The end check (2026-10-21 review): a fresh subagent, given only the request and the result, writes the content
+ * mark so the author never grades its own work; the person mark says whether a person checked that need.
+ */
+const TRACE_RULE =
+  'Before your final reply, give a fresh subagent only my request, word for word, and the finished result, and have it write one row per thing my request asks for: my words, where the result meets them (a short quote), and present, partly or absent. Add the person mark yourself: "person: yes" only when a person checked that need, "person: no" when a person should and did not, "person: n/a" when no person is involved. End with the rows in a fenced code block tagged trace: "<my words>" | <where the result meets it, quoted> | present / partly / absent | person: yes / no / n/a. Never mark present what the subagent did not find.'
+
+/**
  * A panel of five: experts from different fields, two of them critics, picked for this request,
  * with what each would do and with which methods. The card shows them; the work starts on ▶ Go.
  * The core is the owner's prompt (2026-10-19), with his pause (same day) in place of "Then do
  * that work"; the rest keeps the methods real and the scope the same.
+ * 2026-10-21 (his ask): a run swapped a people test for "a fresh subagent is the nearest step" and
+ * never said what a subagent cannot measure, so a runbook meant for a new joiner was judged by agents
+ * alone and lost its orientation part. Hence the cannot-measure clause and a done-when line per reader.
+ * The same day a replay (3 runs) showed the person's test then became "fix a bug", never his words
+ * "the domain knowledge and tech stack", and a review showed the example lines taught that. Hence each
+ * person's line quotes the request, "the owner" and "Claude" name who runs it, and the work ends with
+ * a trace back to the request.
  */
 const PANEL = `Before you start on my request above, pick the five experts from different fields who would make this outstanding, including two whose job is to find what's wrong with it. For each one, tell me what they would actually do and which methods they would use. Do not start the work in this turn; wait for my go-ahead or my corrections.
 - If a choice must be settled before the work (which tools I will use, a fixed time, a budget), ask me with AskUserQuestion before you write the panel. The panel reply itself asks nothing: the card shows only the panel.
 - Name each by field, not as an invented person: no personas, voices or quotes.
-- Pick methods you can carry out here (read, run, test, measure, compare), each named specifically ("think-aloud test", not "best practices"). Where one needs something you lack (a person, a lab, paid data), say so on its line and name the nearest step you can do.
-- Reply with the five in a fenced code block tagged panel, with at most one short line outside it. One line per expert, under 200 characters: the field, "(critic)" after it for the two critics, a colon, what they would do, then "methods:" and the methods by name. The format only:
+- Name every reader of the result: each person, agent, team or later maintainer my request implies, not only the one you can test here. For each, write one done-when line that quotes, in double quotes, the words of my request that say what that reader needs, then a test that checks those very words, and who runs it ("run by …"). A person's test is run by a person (me, or someone I name), and a stated limit never replaces that; when none can run it here, still list it and say who must.
+- Pick methods that test what each reader needs, each named specifically ("think-aloud test", not "best practices"), and carry them out here where you can (read, run, test, measure, compare). Where one needs something you lack (a person, a lab, paid data), say so on its line, name the nearest step you can do, and say what that step cannot measure ("nearest step: a fresh subagent follows it; cannot measure: where a person gets lost").
+- Reply with the five, then the done-when lines, in one fenced code block tagged panel, with at most one short line outside it. One line per expert, under 200 characters before the nearest-step clause: the field, "(critic)" after it for the two critics, a colon, what they would do, then "methods:" and the methods by name. Each done-when line starts "Done when, <reader> ("<my words about that reader>"):", or "Done when, <reader> (implied):" for a reader my request implies but never mentions, and names who runs its test. In those lines "the owner" is me and "Claude" is you. The format only:
 Technical writer: turns each task into numbered steps a new hire can follow; methods: task analysis, plain-language review
-Usability tester (critic): watches two people follow it cold and notes where they stall; methods: think-aloud test, task success rate
-- When I say go, do the work. Don't role-play them, use their methods. Run each method with your tools where you can, and show its real result (its output, a count, a quote); if a method cannot run here, say so in one line rather than describe a result. If a search finds nothing, widen it before you say a file does not exist. Run the two critics' methods after the final text is written, on that text, not only on the plan or a first draft, and report what they found and what you changed. Keep the deliverable I asked for: the panel changes how the work is done, not what it is.`
+Usability tester (critic): watches two people follow it cold and notes where they stall; methods: think-aloud test, task success rate; nearest step: a fresh subagent follows it; cannot measure: where a person gets lost
+Done when, new hire ("<my words about new hires>"): they can say what the product is for and finish the first task from the guide alone; test: they follow it cold and explain it back, run by the owner
+Done when, agent: a fresh agent finishes the same task from the guide alone; test: cold-start run, run by Claude; cannot measure: whether a person understands it
+- When I say go, do the work. Don't role-play them, use their methods. Run each method with your tools where you can, and show its real result (its output, a count, a quote); if a method cannot run here, say so in one line rather than describe a result. Where a method ran as its nearest step, report the result as that step's and repeat what it cannot measure beside it; never present it as the original method's result. If a search finds nothing, widen it before you say a file does not exist. Give my request, word for word, to every subagent you use. Run the two critics' methods after the final text is written, on that text, not only on the plan or a first draft; judge it against my request, and report what they found and what you changed. Before you finish, run each done-when test you can, report pass or fail with its result, and list each one you could not run and who must run it. ${TRACE_RULE} Keep the deliverable I asked for: the panel changes how the work is done, not what it is.`
 
 /**
  * What ▶ Go sends. A prompt this mod submits skips its own hook, so the work rules travel in the
  * text itself. The live trial (2026-10-19) with no tools saw methods described but never run, and
  * a panel question that Go could not answer: hence the real-result and open-choice lines. A later
  * check saw one narrow search (`*.md`, in a folder of .tsx files) taken as "the source is not there":
- * hence the widen-the-search line.
+ * hence the widen-the-search line. The nearest-step and done-when lines: see PANEL (2026-10-21).
  */
-const PANEL_GO =
-  "Go ahead with the panel above: do the work with their methods, not their voices. Run each method with your tools where you can, and show its real result (its output, a count, a quote); if one cannot run here, say so in one line rather than describe a result. If a search finds nothing, widen it before you say a file does not exist. Where the panel left a choice open, take the safest option and name it. Run the two critics' methods after the final text is written, on that text, and report what they found and what you changed."
+const PANEL_GO_RULES =
+  "Go ahead with the panel above: do the work with their methods, not their voices. Run each method with your tools where you can, and show its real result (its output, a count, a quote); if one cannot run here, say so in one line rather than describe a result. Where a method ran as its nearest step, report the result as that step's and repeat what it cannot measure. If a search finds nothing, widen it before you say a file does not exist. Where the panel left a choice open, take the safest option and name it. Run the two critics' methods after the final text is written, on that text, and report what they found and what you changed. Before you finish, run each done-when test you can, report pass or fail with its result, and list each one you could not run and who must run it."
+/**
+ * ▶ Go with your request word for word (2026-10-21, the reviewer's top fix): the work, its subagents
+ * and its critics are all held to what you asked, not to the panel's paraphrase of it.
+ */
+function panelGo(request: string | undefined): string {
+  if (request === undefined || request.trim() === '') return `${PANEL_GO_RULES} ${TRACE_RULE}`
+  return `${PANEL_GO_RULES} Give my request below, word for word, to every subagent you use, and have the critics judge the result against it, not only against the plan. ${TRACE_RULE}\n\nMy request, word for word:\n<<<\n${request.trim()}\n>>>`
+}
+/** A typed reply on a panel card that means "start": it gets the same trace check as ▶ Go. A question does not. */
+const GO_AHEAD = /^\s*(?:go(?: ahead)?|ok(?:ay)?|yes|yep|proceed|start|do it|let'?s go|continue|approved?|lgtm|sounds good)\b(?![^.!]*\?)/i
+/** How many replies after Go the trace check waits for a trace before it gives up. */
+const TRACE_TURNS = 12
+const NO_TRACE = '⚠ No request trace yet: the work is not done until its trace is written (one row per thing you asked for)'
+
+/** One quoted need from the panel's done-when lines, and whether its reader is a person. */
+type Need = { quote: string; person: boolean }
+const needsOf = (r: DraftedCommand): Need[] =>
+  (r.done ?? []).flatMap(d => (d.quotes ?? []).map(quote => ({ quote, person: isPersonReader(d.reader) })))
+const tokens = (text: string) => text.toLowerCase().match(/[a-z0-9]+/g) ?? []
+/** The same need: most words of the shorter quote appear in the other. */
+function sameNeed(a: string, b: string): boolean {
+  const [short, long] = tokens(a).length <= tokens(b).length ? [tokens(a), new Set(tokens(b))] : [tokens(b), new Set(tokens(a))]
+  return short.length > 0 && short.filter(w => long.has(w)).length / short.length >= 0.75
+}
+
+/**
+ * What the toast says when a turn after a panel's Go ends with a trace, or null when it has none. A row is
+ * `"<his words>" | <where> | present / partly / absent | person: yes / no / n/a`. Counted against the
+ * panel's quoted needs (2026-10-21 review): a need with no row, a status outside those words, and a person's
+ * need not checked by a person (marked "no", or "n/a" on a person's quote) are all called out.
+ */
+function traceVerdict(answer: string, needs: readonly Need[]): string | null {
+  const block = fences(answer, 'trace').find(f => f.body !== '')
+  if (block === undefined) return null
+  let present = 0
+  let partly = 0
+  let absent = 0
+  let unchecked = 0
+  let bad = 0
+  let rows = 0
+  const quotes: string[] = []
+  for (const line of block.body.split(/\r?\n/)) {
+    if (!line.includes('|')) continue
+    const cells = line.split('|').map(c => c.trim().toLowerCase().replace(/[*_`]/g, ''))
+    const content = cells.at(-2) ?? ''
+    const person = cells.at(-1) ?? ''
+    if (cells.every(c => /^[-: ]*$/.test(c)) || /^(?:content|status)$/.test(content)) continue // a header or a rule line
+    rows++
+    const quote = (line.split('|')[0] ?? '').trim()
+    quotes.push(quote)
+    const mark = person.match(/^person\s*:\s*(yes|no|n\/a)$/)
+    const okContent = /^(?:present|partly|absent)$/.test(content)
+    if (!okContent || !mark) bad++
+    if (content === 'present') present++
+    else if (content === 'partly') partly++
+    else if (content === 'absent') absent++
+    if (mark && (mark[1] === 'no' || (mark[1] === 'n/a' && needs.some(n => n.person && sameNeed(n.quote, quote))))) unchecked++
+  }
+  if (rows === 0) return '⚠ The request trace has no readable rows: ask Claude for one row per thing you asked for'
+  const missing = needs.filter(n => !quotes.some(q => sameNeed(n.quote, q))).map(n => `"${n.quote}"`)
+  if (bad === 0 && missing.length === 0 && unchecked === 0 && present === rows) {
+    return `Request trace: ${present} of ${rows} present, every person check done`
+  }
+  const parts = [`${present} present, ${partly} partly, ${absent} absent`]
+  if (unchecked > 0) parts.push(`${unchecked} need${unchecked > 1 ? 's' : ''} of a person not checked by a person`)
+  if (bad > 0) parts.push(`${bad} row${bad > 1 ? 's' : ''} without a status the trace may use`)
+  if (missing.length > 0) parts.push(`no row for ${missing.join(', ')}`)
+  return `⚠ Request trace: ${parts.join('; ')}: read those rows before you accept the work`
+}
+
 /** What ✎ Correct puts in the box on a panel card. A prompt that starts with it gets PANEL_REVISE attached. */
 const PANEL_FIX = 'Correction to the panel: '
 /** Attached to a panel correction, so the revised panel comes back in the shape the card reads. */
 const PANEL_REVISE =
-  'Revise the panel as I ask, then reply with all five again in a fenced code block tagged panel, in the same line format, with at most one short line outside it. Do not start the work in this turn.'
+  'Revise the panel as I ask, then reply with all five again, and the done-when lines, in a fenced code block tagged panel, in the same line format, with at most one short line outside it. Do not start the work in this turn.'
 
 const INSTRUCTION = { brief: CLARIFY, goal: GOAL, loop: LOOP, deep: DEEPEN, panel: PANEL } as const
 
@@ -229,28 +317,99 @@ function parseParts(body: string | null): { label: string; value: string }[] {
   return parts
 }
 
+/** "Done when, …", "Done when (…", "Done when for …" or "Done when: …" (the last has no reader, which the card flags). */
+const DONE_START = /^done[- ]when\s*(?:,|\(|\bfor\b|(?=:))\s*/i
+/** A checkbox, a ✓, or * / _ emphasis a model puts around "Done when", taken off in that order. */
+const undress = (line: string) =>
+  line
+    .replace(/^(?:\[[ xX]\]\s*|[✓✔☐☑]\s*)+/, '')
+    .replace(/^[*_]+/, '')
+    .replace(/^(done[- ]when)[*_]+/i, '$1')
+/** A quote in straight or curly double quotes. */
+const QUOTED = /"([^"]+)"|“([^”]+)”/g
+/** "nearest step: …" and "cannot measure: …" clauses, taken out of an expert line into their own fields. */
+const SWAP_CLAUSE = /(?:^|[;,(]\s*|\s)near(?:est|er) step\s*:\s*([^;)]*)/i
+const LIMIT_CLAUSE = /(?:^|[;,(]\s*|\s)(?:cannot|can['’]t|can not) measure\s*:\s*([^;)]*)/i
+
+/** The index of the first colon outside double quotes, or -1. */
+function colonOutsideQuotes(text: string): number {
+  let open: string | null = null
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!
+    if (open === null && (c === '"' || c === '“')) open = c === '"' ? '"' : '”'
+    else if (open !== null && c === open) open = null
+    else if (open === null && c === ':') return i
+  }
+  return -1
+}
+
+/** A done-when line read into its reader, its quotes of the request and its test, or null when the line is not one. */
+function doneLine(line: string): PanelDone | null {
+  // "Done-when auditor (critic): …" stays an expert: DONE_START wants a comma, "(", "for" or ":" after "when"
+  const plain = undress(line).trim()
+  const start = plain.match(DONE_START)
+  if (!start) return null
+  const rest = plain.slice(start[0].length)
+  const colon = colonOutsideQuotes(rest)
+  const head = colon < 0 ? rest : rest.slice(0, colon)
+  const test = colon < 0 ? '' : rest.slice(colon + 1).trim()
+  const quotes = [...`${head} ${test}`.matchAll(QUOTED)].map(m => (m[1] ?? m[2] ?? '').trim()).filter(q => q !== '')
+  const implied = /\bimplied\b/i.test(head.replace(QUOTED, ''))
+  const reader = head
+    .replace(QUOTED, '')
+    .replace(/\bimplied\b/gi, '')
+    .replace(/[()]/g, ' ')
+    .replace(/[\s,;:*_—–-]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return { reader, test, quotes, ...(implied ? { implied } : {}) }
+}
+
 /**
  * A panel's lines, one expert each: "Field (critic): what they would do; methods: …". A list
  * marker or bold is dropped; a line with no colon is all field, with nothing they would do. The
- * methods are split off at the last "methods:" so the card can always show them.
+ * methods are split off at the last "methods:" so the card can always show them, after the
+ * "nearest step:" and "cannot measure:" clauses are taken into their own fields (so a clause never
+ * hides generic methods, and the card shows it whole). A line that starts "Done when" is a reader's
+ * test, not an expert; a line with no colon right after one is the rest of that test.
  */
-function parsePanel(body: string): PanelExpert[] {
+function parsePanel(body: string): { experts: PanelExpert[]; done: PanelDone[] } {
   const experts: PanelExpert[] = []
+  const done: PanelDone[] = []
+  let last: 'expert' | 'done' | null = null
   for (const raw of body.split(/\r?\n/)) {
     const line = unlist(raw).trim()
     if (line === '') continue
+    const d = doneLine(line)
+    if (d) {
+      done.push(d)
+      last = 'done'
+      continue
+    }
     const colon = line.indexOf(':')
+    // the rest of a wrapped done-when line: no colon, or it starts with its own "test:" or runner
+    if (last === 'done' && (colon < 0 || /^(?:test|run by|cannot measure|can['’]t measure)\b/i.test(line))) {
+      const prior = done[done.length - 1]!
+      prior.test = `${prior.test} ${line}`.trim()
+      continue
+    }
+    last = 'expert'
     const head = colon < 0 ? line : line.slice(0, colon)
-    const rest = colon < 0 ? '' : line.slice(colon + 1).trim()
+    let rest = colon < 0 ? '' : line.slice(colon + 1).trim()
+    const swap = rest.match(SWAP_CLAUSE)?.[1]?.trim()
+    const limit = rest.match(LIMIT_CLAUSE)?.[1]?.trim()
+    rest = rest.replace(SWAP_CLAUSE, '').replace(LIMIT_CLAUSE, '').replace(/\(\s*\)/g, '').trim()
     const split = rest.match(/^([\s\S]*)\bmethods?\s*:\s*([\s\S]*)$/i)
     experts.push({
       field: head.replace(/\s*\(\s*critic\s*\)\s*/i, ' ').trim(),
       critic: /\(\s*critic\s*\)/i.test(head),
       work: (split ? (split[1] ?? '') : rest).replace(/[\s;,.—–-]+$/, '').trim(),
-      methods: split ? (split[2] ?? '').trim() : '',
+      methods: split ? (split[2] ?? '').replace(/[\s;,]+$/, '').trim() : '',
+      ...(swap !== undefined ? { swap } : {}),
+      ...(limit !== undefined ? { limit } : {}),
     })
   }
-  return experts
+  return { experts, done }
 }
 
 /** A draft in the answer: a deeper prompt or a panel when that is what was asked for, else a goal or loop command, or a brief. */
@@ -261,7 +420,7 @@ function findDraft(answer: string, asked: Kind): DraftedCommand | null {
     if (f === undefined || f.body === '') return null
     // what it says outside the block: the re-check saw a plan-changing assumption there in 194 characters
     const note = `${answer.slice(0, f.start)} ${answer.slice(f.end)}`.replace(/\s+/g, ' ').trim()
-    return { kind: 'panel', args: f.body, parts: [], experts: parsePanel(f.body), note }
+    return { kind: 'panel', args: f.body, parts: [], ...parsePanel(f.body), note }
   }
   if (asked === 'deep') {
     // only a ++deep request is read this way, and its card wins over any other block in the reply
@@ -478,13 +637,20 @@ export const register: Register = (on, options) => {
       return { drop: why ?? 'Checking your grammar. Nothing is sent to Claude.' }
     }
     if (!text.startsWith('++')) {
-      const settles = (await read($, ready))?.kind
+      const waiting = await read($, ready)
+      const settles = waiting?.kind
       // A panel correction, from ✎ Correct or typed by hand while the panel card waits: the revised
-      // five come back in the shape the card reads, as a new card.
-      if (text.startsWith(PANEL_FIX.trim()) && (settles === 'panel' || (await read($, drafting))?.kind === 'panel')) {
+      // five come back in the shape the card reads, as a new card, still held to your request.
+      const draftingNow = await read($, drafting)
+      if (text.startsWith(PANEL_FIX.trim()) && (settles === 'panel' || draftingNow?.kind === 'panel')) {
+        const request = waiting?.request ?? draftingNow?.request
         await update($, ready, () => null)
-        await update($, drafting, () => ({ kind: 'panel', turnsLeft: DRAFT_TURNS }))
+        await update($, drafting, () => ({ kind: 'panel', turnsLeft: DRAFT_TURNS, ...(request !== undefined ? { request } : {}) }))
         return next({ ...e, context: [...(e.context ?? []), PANEL_REVISE] })
+      }
+      // A go-ahead typed on a panel card starts the work just as ▶ Go does, so its reply is checked for the trace too.
+      if (e.origin.kind === 'composer' && settles === 'panel' && waiting !== null && GO_AHEAD.test(text)) {
+        await update($, tracing, () => ({ request: waiting.request ?? '', needs: needsOf(waiting), turns: 0 }))
       }
       // Your next prompt after a brief, a panel or a deeper prompt (a go-ahead, a correction, the rewrite itself) settles its card.
       if (e.origin.kind === 'composer' && (settles === 'brief' || settles === 'panel' || settles === 'deep')) await update($, ready, () => null)
@@ -509,7 +675,10 @@ export const register: Register = (on, options) => {
               : 'loop'
     const request = text.slice(m ? m[0].length : 2).trim()
     if (request === '') return next(e)
-    await update($, drafting, () => ({ kind, turnsLeft: DRAFT_TURNS, words: wordCount(request) }))
+    // a panel keeps your words: its card holds the done-when lines to them, and ▶ Go hands them to the work
+    await update($, drafting, () => ({ kind, turnsLeft: DRAFT_TURNS, words: wordCount(request), ...(kind === 'panel' ? { request } : {}) }))
+    // a new request ends the trace check of the work before it
+    await update($, tracing, () => null)
     await update($, ready, () => null)
     let instruction: string = INSTRUCTION[kind]
     if (kind !== 'brief') {
@@ -555,6 +724,22 @@ export const register: Register = (on, options) => {
   // While a draft is on its way, catch it when a turn ends.
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
+    // After a panel's Go: has the work ended with a trace back to your request? The check stays on until a
+    // trace arrives, since work that asks "shall I go on?" ends its real result turns later (2026-10-21 review).
+    const t = e.agentId === undefined ? await read($, tracing) : null
+    if (t !== null) {
+      const verdict = traceVerdict(e.answer, t.needs)
+      if (verdict !== null) {
+        await update($, tracing, () => null)
+        $.ui.toast(verdict)
+      } else if (t.turns + 1 >= TRACE_TURNS) {
+        await update($, tracing, () => null)
+        $.ui.toast(`${NO_TRACE}; the check stops after ${TRACE_TURNS} replies`)
+      } else {
+        await update($, tracing, v => (v === null ? null : { ...v, turns: v.turns + 1 }))
+        $.ui.toast(NO_TRACE)
+      }
+    }
     const d = await read($, drafting)
     if (d === null || e.agentId !== undefined) return result
     // A loop request may come back as a goal when that fits better: take either.
@@ -563,7 +748,13 @@ export const register: Register = (on, options) => {
       await update($, drafting, () => null)
       // the card checks a goal, loop, rewrite or panel against the user-only skills: know them before it draws
       if (found.kind !== 'brief' && userOnly === null) await userOnlySkills($).catch(() => [])
-      await update($, ready, () => (found.kind === 'deep' ? { ...found, words: d.words } : found))
+      await update($, ready, () =>
+        found.kind === 'deep'
+          ? { ...found, words: d.words }
+          : found.kind === 'panel' && d.request !== undefined
+            ? { ...found, request: d.request }
+            : found,
+      )
       // a brief or a panel waits on the card for your go-ahead: nothing goes in the box
       if (found.kind !== 'brief' && found.kind !== 'panel' && found.args !== '') {
         // Only into an empty box: what you typed while Claude drafted stays.
@@ -638,7 +829,8 @@ export const register: Register = (on, options) => {
     if (kind === 'goal') gaps.push(...lintGoal(r.args, userOnly ?? []))
     if (kind === 'loop') gaps.push(...lintLoop(r.args, userOnly ?? []))
     if (kind === 'deep') gaps.push(...lintDeep(byLabel.get('proof'), r.args, userOnly ?? []))
-    if (kind === 'panel') gaps.push(...lintPanel(r.experts ?? [], userOnly ?? [], (r.note ?? '').length))
+    // a card from before 0.9.1 has no done lines and one from before 0.9.2 no request: neither is judged on them
+    if (kind === 'panel') gaps.push(...lintPanel(r.experts ?? [], userOnly ?? [], (r.note ?? '').length, r.done, r.request))
     const tooLong = kind === 'goal' && r.args.length > GOAL_LIMIT
     // what this card puts in the box: the command, or for deep the rewritten prompt itself
     const cmd = kind === 'deep' ? r.args : `/${kind} ${r.args}`
@@ -672,7 +864,28 @@ export const register: Register = (on, options) => {
               {`   ${x.work.length > width * 2 ? `${x.work.slice(0, width * 2 - 1)}…` : x.work}`}
             </Text>
           )}
+          {/* the swap and its limit, whole: a cut here once hid the very words you judge it by */}
+          {(x.swap !== undefined || x.limit !== undefined) && (
+            <Text key={`pe-swap-${i}`} wrap="wrap">
+              {`   ↳ nearest step: ${x.swap ?? '(none named)'} · cannot measure: ${x.limit ?? '(not said)'}`}
+            </Text>
+          )}
         </Box>,
+      )
+    }
+    // one row per reader of the result and the test that settles it for them: you judge these before Go too
+    // The test is shown whole (up to 600 characters): who runs it sits at the end, where a cut would hide it.
+    for (const [i, d] of (r.done ?? []).entries()) {
+      const test = d.test.length > 600 ? `${d.test.slice(0, 599)}…` : d.test
+      const quotes = (d.quotes ?? []).map(q => `  “${q}”`).join('') + (d.implied === true ? '  (implied)' : '')
+      rows.push(
+        <Text key={`pe-done-${i}`} wrap="wrap">
+          <Text bold color={accent}>
+            {`✓ Done when · ${d.reader === '' ? '(no reader)' : d.reader}`}
+          </Text>
+          {quotes !== '' && <Text italic>{quotes}</Text>}
+          <Text>{`  ${test}`}</Text>
+        </Text>,
       )
     }
     // what the panel reply said outside its block, up to three lines: an assumption there changes the plan
@@ -733,7 +946,9 @@ export const register: Register = (on, options) => {
             variant="primary"
             onPress={async () => {
               await close()
-              await $.prompt.submit({ text: PANEL_GO, asUser: true })
+              // the reply to this Go is checked for a trace back to your request when its turn ends
+              await update($, tracing, () => ({ request: r.request ?? '', needs: needsOf(r), turns: 0 }))
+              await $.prompt.submit({ text: panelGo(r.request), asUser: true })
             }}
           />
           <Text>  </Text>
@@ -747,7 +962,7 @@ export const register: Register = (on, options) => {
               if (box === 'unknown') return void $.ui.toast(`Could not read the prompt box: type "${PANEL_FIX.trim()}" and your correction yourself`)
               await close()
               // the revised panel comes back as a card
-              await update($, drafting, () => ({ kind: 'panel', turnsLeft: DRAFT_TURNS }))
+              await update($, drafting, () => ({ kind: 'panel', turnsLeft: DRAFT_TURNS, ...(r.request !== undefined ? { request: r.request } : {}) }))
               await $.prompt.fill({ text: PANEL_FIX, mode: 'replace' }).catch(() => undefined)
             }}
           />

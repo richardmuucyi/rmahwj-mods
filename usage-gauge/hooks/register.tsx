@@ -123,6 +123,50 @@ function shortModel(m: string): string {
   return m.replace(/^claude-/, '').replace(/-\d{8}$/, '')
 }
 
+/** One spelling for a model however it is named: "claude-opus-5-5-20261001[1m]", "Opus 5.5" and "opus-5-5" are all "opus-5-5". */
+function baseModel(m: string): string {
+  return m
+    .toLowerCase()
+    .trim()
+    .replace(/\[[^\]]*\]$/, '')
+    .replace(/^.*?claude-/, '')
+    .replace(/-\d{8}$/, '')
+    .replace(/[\s.]+/g, '-')
+}
+
+/** The aliases /model takes, and the families each may run on (opusplan plans on Opus and works on Sonnet). */
+const ALIAS: Record<string, string[]> = { opus: ['opus'], sonnet: ['sonnet'], haiku: ['haiku'], fable: ['fable'], opusplan: ['opus', 'sonnet'] }
+
+/** Whether a request on `sent` runs the model the person selected. "default" or an empty selection says nothing, so it matches. */
+function sameModel(selected: string, sent: string | undefined): boolean {
+  if (sent === undefined) return true
+  const a = baseModel(selected)
+  const b = baseModel(sent)
+  if (a === b || a === '' || a === 'default') return true
+  const families = ALIAS[a]
+  return families !== undefined && families.some(f => b === f || b.startsWith(`${f}-`))
+}
+
+/**
+ * The effort the person selected, in Claude Code's order: CLAUDE_CODE_EFFORT_LEVEL, then the selected model's own entry
+ * under modelSettings (what /effort sets for one model), then the top-level effortLevel. Undefined: none set, and the
+ * model's default applies, which this mod cannot know.
+ */
+async function chosenEffort($: EngineInterface, settings: Record<string, unknown> | undefined, model: string | undefined): Promise<string | undefined> {
+  const env = await $.env.get('CLAUDE_CODE_EFFORT_LEVEL').catch(() => undefined)
+  if (env) return env
+  const per = settings?.modelSettings
+  if (model && per && typeof per === 'object') {
+    const exact = Object.keys(per).filter(k => baseModel(k) === baseModel(model))
+    // An alias names one model only when exactly one entry is of its family.
+    const hits = exact.length > 0 ? exact : Object.keys(per).filter(k => sameModel(model, k))
+    const [only] = hits
+    const level = hits.length === 1 && only !== undefined ? (per as Record<string, { effortLevel?: unknown }>)[only]?.effortLevel : undefined
+    if (typeof level === 'string') return level
+  }
+  return typeof settings?.effortLevel === 'string' ? settings.effortLevel : undefined
+}
+
 function effortName(e: unknown): string | undefined {
   if (typeof e === 'string') return e
   if (typeof e === 'number') return `${e}`
@@ -162,10 +206,8 @@ async function refresh($: EngineInterface): Promise<void> {
   const t = await $.clock.now()
   const model = await $.session.model().catch(() => undefined)
   const settings = await $.settings.read().catch(() => undefined)
-  // Before the first request names it: the effort the session starts with.
-  const startEffort =
-    (await $.env.get('CLAUDE_CODE_EFFORT_LEVEL').catch(() => undefined)) ||
-    (typeof settings?.effortLevel === 'string' ? settings.effortLevel : undefined)
+  // Before the first request names them: the model and effort the session starts with.
+  const startEffort = await chosenEffort($, settings, model)
   const ttlChoice = await chosenTtl($, settings)
   const limit = (kind: string): Limit | undefined => {
     const r = u.rateLimits.find(x => x.kind === kind)
@@ -178,8 +220,11 @@ async function refresh($: EngineInterface): Promise<void> {
     ttlChoice,
     startedAt: u.startedAt,
     now: t,
-    model: model || g.model,
+    // After it, the chips are what was sent: the selection is compared with them at each request, never drawn over them.
+    model: g.ran ? g.model : model || g.model,
     effort: g.ran ? g.effort : startEffort || g.effort,
+    // The pick as it stands, for the chips to show between requests.
+    pick: { model: model || undefined, effort: startEffort },
     // No figure from the engine (a fresh session, a /clear, or a compaction before its next response): the old real
     // figure is out of date and goes; a compaction's estimate stays until the real one arrives.
     context:
@@ -414,10 +459,25 @@ export const register: Register = (on, options) => {
       }
       return r
     }
+    // What the person had selected as this request went out, to hold the request to.
+    let selected: Gauge['selected']
+    try {
+      const [sel, settings] = await Promise.all([$.session.model().catch(() => undefined), $.settings.read().catch(() => undefined)])
+      // A request with no effort is on a model that takes none, and a token budget is no level: nothing to hold it to.
+      const effort = typeof e.effort !== 'string' ? undefined : await chosenEffort($, settings, sel || e.model)
+      selected = { model: sel || undefined, effort }
+    } catch {
+      selected = undefined
+    }
     try {
       const model = e.model
       const effort = effortName(e.effort)
-      void update($, gauge, g => (g.ran && g.model === model && g.effort === effort ? g : { ...g, model, effort: effort ?? g.effort, ran: true })).catch(() => undefined)
+      const same = (x: Gauge['selected']) => x?.model === selected?.model && x?.effort === selected?.effort
+      void update($, gauge, g =>
+        g.ran && g.model === model && g.effort === effort && same(g.selected) && (!selected || same(g.pick))
+          ? g
+          : { ...g, model, effort: effort ?? g.effort, ran: true, selected, ...(selected ? { pick: selected } : {}) },
+      ).catch(() => undefined)
       // A cache belongs to the model that wrote it: a request on another model has none to read, so the clock goes.
       void update($, gauge, g => (g.cacheModel !== undefined && g.cacheModel !== model ? { ...g, cacheAt: undefined, cacheModel: undefined } : g)).catch(() => undefined)
     } catch {
@@ -492,12 +552,26 @@ export const register: Register = (on, options) => {
     const slots = show.git && g.git !== undefined
     const { narrow: isNarrow, tokens: withTokens, untracked: withUntracked, branch: branchRoom } = layoutOf(e.viewport?.columns, slots, show.tokens)
     const t = g.now || g.startedAt
-    const chip = g.model && (
+    // The person picked again since the last request (/model, /effort): the new pick, in the plain colours, until a
+    // request is held to it.
+    const pick = g.ran ? g.pick : undefined
+    const newModel = pick?.model !== undefined && g.selected !== undefined && pick.model !== g.selected.model ? pick.model : undefined
+    const newEffort = pick?.effort !== undefined && g.selected?.effort !== undefined && pick.effort !== g.selected.effort ? pick.effort : undefined
+    const model = newModel ?? g.model
+    const effort = newEffort ?? g.effort
+    // A request that did not send what the person selected: that chip in the theme's warning colour, "selected → sent".
+    const selModel = !newModel && g.ran && g.selected?.model !== undefined && !sameModel(g.selected.model, g.model) ? g.selected.model : undefined
+    const selEffort = !newEffort && g.ran && g.selected?.effort !== undefined && g.effort !== undefined && g.selected.effort !== g.effort ? g.selected.effort : undefined
+    const chip = model && (
       <Text key="ug-chip">
-        <Text bold color={CHIP.model.fg} backgroundColor={CHIP.model.bg}>{` ${isNarrow ? shortModel(g.model) : g.model} `}</Text>
-        {g.effort && (
-          <Text bold color={CHIP.effort.fg} backgroundColor={CHIP.effort.bg}>
-            {` ${effortLabel(g.effort)} `}
+        {selModel ? (
+          <Text bold color={CHIP.model.fg} backgroundColor="warning">{` ${shortModel(selModel)} → ${shortModel(model)} `}</Text>
+        ) : (
+          <Text bold color={CHIP.model.fg} backgroundColor={CHIP.model.bg}>{` ${isNarrow ? shortModel(model) : model} `}</Text>
+        )}
+        {effort && (
+          <Text bold color={CHIP.effort.fg} backgroundColor={selEffort ? 'warning' : CHIP.effort.bg}>
+            {selEffort ? ` ${effortLabel(selEffort)} → ${effortLabel(effort)} ` : ` ${effortLabel(effort)} `}
           </Text>
         )}
       </Text>
