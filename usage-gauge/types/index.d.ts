@@ -53,6 +53,11 @@ export type Gauge = {
   context?: { pct: number; tokens?: number; window: number; estimated?: boolean }
   fiveHour?: Limit
   weekly?: Limit
+  /**
+   * A main turn ended with neither window reported: an API key, a cloud provider or a gateway, which has no plan. The two
+   * limit meters are not drawn while it holds and no window has turned up since.
+   */
+  noPlan?: boolean
   /** US dollars so far, API-price equivalent. */
   cost?: number
   startedAt: number

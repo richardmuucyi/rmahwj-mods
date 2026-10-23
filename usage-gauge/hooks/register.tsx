@@ -532,6 +532,9 @@ export const register: Register = (on, options) => {
     const r = await next(e)
     if (e.agentId === undefined) {
       await refresh($).catch(() => undefined)
+      // A plan's windows arrive with its first reply, so a finished turn without them means there is no plan. A turn
+      // stopped before any reply proves nothing.
+      if (!e.isAborted) await update($, gauge, g => ({ ...g, noPlan: g.fiveHour === undefined && g.weekly === undefined })).catch(() => undefined)
       // The turn may have written files or committed: look again, without making the turn wait for git.
       void refreshGit($)
     }
@@ -604,13 +607,15 @@ export const register: Register = (on, options) => {
     )
     // The context meter also shows how many tokens the context holds (it was the session board's "ctx 305K" chip).
     const ctx: Limit | undefined = g.context ? { pct: g.context.pct, approx: g.context.estimated, tokens: g.context.tokens } : undefined
+    // No plan (an API key): the limit meters would stay empty for good, so row 2 is the context meter alone.
+    const limits = !(g.noPlan && g.fiveHour === undefined && g.weekly === undefined)
     const row2 = (
       <Box key="ug-row2" flexWrap="wrap">
         {meter(ui, 'ug-ctx', isNarrow ? 'ctx' : 'context', ctx, undefined)}
-        <Text>{isNarrow ? '  ' : '     '}</Text>
-        {meter(ui, 'ug-5h', isNarrow ? '5h' : '5 hour', g.fiveHour, resetLabel(g.fiveHour?.resetsAt, t))}
-        <Text>{isNarrow ? '  ' : '     '}</Text>
-        {meter(ui, 'ug-wk', isNarrow ? 'wk' : 'weekly', g.weekly, isNarrow ? undefined : dateLabel(g.weekly?.resetsAt))}
+        {limits && <Text>{isNarrow ? '  ' : '     '}</Text>}
+        {limits && meter(ui, 'ug-5h', isNarrow ? '5h' : '5 hour', g.fiveHour, resetLabel(g.fiveHour?.resetsAt, t))}
+        {limits && <Text>{isNarrow ? '  ' : '     '}</Text>}
+        {limits && meter(ui, 'ug-wk', isNarrow ? 'wk' : 'weekly', g.weekly, isNarrow ? undefined : dateLabel(g.weekly?.resetsAt))}
       </Box>
     )
     const beneath = await next(e)
