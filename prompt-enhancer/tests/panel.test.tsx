@@ -10,7 +10,9 @@ const BAND = {
   view: {},
 }
 // On Windows the engine hands fs hooks backslash paths: key the fake folders by forward slashes.
-const posix = (p: string) => p.replace(/\\/g, '/')
+// Elsewhere a drive-letter stand-in is not absolute, so the engine resolves it against the working
+// folder (/…/prompt-enhancer/C:/work/vault/…): drop that prefix to reach the same key.
+const posix = (p: string) => p.replace(/\\/g, '/').replace(/^\/.*?\/(?=[A-Za-z]:\/)/, '')
 
 /** The engine beneath the mod: a prompt box, toasts, what reached Claude, and a skills folder in memory. */
 function bottom(on: Parameters<TestBody>[1], files = new Map<string, string>(), opts: { noBox?: boolean } = {}) {
@@ -486,4 +488,12 @@ test('✎ Correct keeps your request: the revised panel is still held to your wo
   const c = await mount($)
   expect(fold((await c.find({ key: 'pe-ready' }))?.text)).toContain('⚠ Done when, new hire: quote the words of the request this reader needs')
   await c.unmount()
+})
+
+test('the 2026-10-25 re-run fix: the panel instruction caps the done-when lines and keeps them to one deliverable', async ($, on) => {
+  const r = bottom(on)
+  await $.prompt.submit({ text: '++panel write the onboarding guide', origin: { kind: 'composer' }, wait: false })
+  const ctx = r.seen.at(-1)!.context.join('\n')
+  expect(ctx).toContain('At most 6 done-when lines: when two readers need the same thing (me asking and me reading), merge them into one line that quotes both')
+  expect(ctx).toContain('a reader whose test needs a second deliverable is out of scope')
 })

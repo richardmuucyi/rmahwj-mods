@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { DEEP_WORDS, GOAL_LIMIT, isPersonReader, lintDeep, lintGoal, lintLoop, lintPanel, userOnlyName, wordCount } from '../hooks/lint'
+import { DEEP_WORDS, DEEP_WORDS_ASKED, GOAL_LIMIT, PANEL_DONE_MAX, isPersonReader, lintDeep, lintGoal, lintLoop, lintPanel, userOnlyName, wordCount } from '../hooks/lint'
 
 // The cap pattern the ++goal instruction asks for, as a real draft would carry it.
 const CAPPED_GOAL =
@@ -505,4 +505,79 @@ test('a panel that names a user-only skill as a method is flagged once, unless i
     '/tutor is user-only: Claude cannot call it, so you type it',
   ])
   expect(lintPanel([...FIVE.slice(0, 4), expert('Trainer', true, 'you type /tutor yourself, spaced recall', 'drills it')], names)).toEqual([])
+})
+
+// ── 2026-10-24 eval fixes ────────────────────────────────────────────────────────
+
+const UPSTREAM =
+  '"@{u}" or "ahead" needs an upstream branch, which a new branch lacks: for "not pushed", git log --branches --not --remotes lists commits on no remote'
+
+test('a goal check that needs an upstream branch is flagged: @{u} and "status -sb … ahead"', () => {
+  // the two drafts from the eval, cut to the clause that failed on a branch with no upstream
+  expect(lintGoal(`${CAPPED_GOAL} start.txt holds \`git rev-parse @{u}\`, identical now.`)).toEqual([UPSTREAM])
+  expect(lintGoal(`${CAPPED_GOAL} \`git status -sb\` shows ahead, not pushed.`)).toEqual([UPSTREAM])
+  expect(lintGoal(`${CAPPED_GOAL} \`git rev-parse @{upstream}\` unchanged.`)).toEqual([UPSTREAM])
+  // the suggested replacement, and "ahead" in other senses, are not flagged
+  expect(lintGoal(`${CAPPED_GOAL} \`git log --branches --not --remotes\` lists the one commit.`)).toEqual([])
+  expect(lintGoal(`${CAPPED_GOAL} The plan goes ahead only after the check.`)).toEqual([])
+})
+
+test('a deep rewrite that asks for an output the request never named is flagged; one the request named is not', () => {
+  const flag = (w: string) => `the rewrite asks for "${w}", which your request never named: a new deliverable?`
+  // the eval's dinner plan, which came back with a nutrient breakdown
+  expect(lintDeep('the test passes', `${SHORT} Add a per-serving nutrient breakdown.`, [], 'plan a week of healthy dinners')).toEqual([flag('breakdown')])
+  expect(lintDeep('the test passes', `${SHORT} Put the results in a table.`, [], 'fix the login bug')).toEqual([flag('table')])
+  // singular in the request, plural in the rewrite, and the other way round
+  expect(lintDeep('the test passes', `${SHORT} Keep both tables.`, [], 'make a table of the prices')).toEqual([])
+  expect(lintDeep('the test passes', `${SHORT} One analysis per region.`, [], 'compare the analyses')).toEqual([])
+  // a kind of output read as a source, with no verb that makes it, is not an added output
+  expect(lintDeep('the test passes', `${SHORT} Start from the architecture diagram, not the ticket summary.`, [], 'fix the login bug')).toEqual([])
+  // no request (a card from before 0.9.3) is not judged on it; verbs such as "report" and "audit" never are
+  expect(lintDeep('the test passes', `${SHORT} Put it in a table.`)).toEqual([])
+  expect(lintDeep('the test passes', `${SHORT} Report pass or fail, then audit the log.`, [], 'fix the login bug')).toEqual([])
+  // a ban names the output only to keep it out (the 2026-10-25 re-run's dinner plan); a break before the verb ends it
+  const dinners = 'plan a week of healthy dinners'
+  expect(lintDeep('the test passes', `${SHORT} Do not add these checks, or any nutrition table, to the reply.`, [], dinners)).toEqual([])
+  expect(lintDeep('the test passes', `${SHORT} Never include a summary.`, [], dinners)).toEqual([])
+  expect(lintDeep('the test passes', `${SHORT} Do not stop; add a table.`, [], dinners)).toEqual([flag('table')])
+  expect(lintDeep('the test passes', `${SHORT} Not that one. Add a table.`, [], dinners)).toEqual([flag('table')])
+})
+
+// ── 2026-10-25 re-run fixes ──────────────────────────────────────────────────────
+
+test('a loop that tells you to type a user-only skill is a reminder, not a step it runs; one that runs it is still flagged', () => {
+  const names = ['civitai-daily-buzz']
+  const ok = 'if nothing changed, say so in one line'
+  // the three reminder loops from the re-run, cut to the clause the card flagged
+  for (const l of [
+    `24h read last-run.json; if older, say "Type /civitai-daily-buzz yourself." ${ok}`,
+    `24h if not done, say the run stopped partway, so type /civitai-daily-buzz again. ${ok}`,
+    `24h say in one line: "Buzz not collected yet today: type /civitai-daily-buzz yourself." ${ok}`,
+  ]) {
+    expect([l, lintLoop(l, names)]).toEqual([l, []])
+  }
+  expect(lintLoop(`24h run /civitai-daily-buzz; ${ok}`, names)).toEqual(['/civitai-daily-buzz is user-only: a loop pass gets it as plain text'])
+})
+
+test('a deep rewrite after questions has room for the answers; one with no questions keeps the old cap', () => {
+  const words = (n: number) => Array.from({ length: n }, () => 'word').join(' ')
+  expect(lintDeep('the test passes', words(DEEP_WORDS + 24), [], undefined, true)).toEqual([])
+  expect(lintDeep('the test passes', words(DEEP_WORDS_ASKED), [], undefined, true)).toEqual([])
+  expect(lintDeep('the test passes', words(DEEP_WORDS_ASKED + 1), [], undefined, true)).toEqual([`the rewrite is ${DEEP_WORDS_ASKED + 1} words: bigger, not deeper?`])
+  expect(lintDeep('the test passes', words(DEEP_WORDS + 24))).toEqual([`the rewrite is ${DEEP_WORDS + 24} words: bigger, not deeper?`])
+})
+
+test('a panel with more done-when lines than the cap is flagged; one at the cap is not', () => {
+  const line = (i: number) => ({ reader: `agent ${i}`, test: 'cold-start run, run by Claude' })
+  const atCap = Array.from({ length: PANEL_DONE_MAX }, (_, i) => line(i))
+  expect(lintPanel(FIVE, [], 0, atCap)).toEqual([])
+  expect(lintPanel(FIVE, [], 0, [...atCap, line(99)])).toEqual([`${PANEL_DONE_MAX + 1} done-when lines, more than ${PANEL_DONE_MAX}: merge readers who need the same thing`])
+})
+
+test('grill mode lifts the length caps: no word cap on a deep rewrite, no done-when cap on a panel', () => {
+  const words = (n: number) => Array.from({ length: n }, () => 'word').join(' ')
+  expect(lintDeep('the test passes', words(DEEP_WORDS_ASKED + 100), [], undefined, true, true)).toEqual([])
+  const many = Array.from({ length: PANEL_DONE_MAX + 4 }, (_, i) => ({ reader: `agent ${i}`, test: 'cold-start run, run by Claude' }))
+  expect(lintPanel(FIVE, [], 0, many, undefined, true)).toEqual([])
+  expect(lintPanel(FIVE, [], 0, many)).toHaveLength(1)
 })

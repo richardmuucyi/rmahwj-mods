@@ -11,7 +11,9 @@ const BAND = {
 }
 const fold = (s: string | undefined) => (s ?? '').replace(/\s+/g, ' ').trim()
 // On Windows the engine hands fs hooks backslash paths: key the fake folders by forward slashes.
-const posix = (p: string) => p.replace(/\\/g, '/')
+// Elsewhere a drive-letter stand-in is not absolute, so the engine resolves it against the working
+// folder (/…/prompt-enhancer/C:/work/vault/…): drop that prefix to reach the same key.
+const posix = (p: string) => p.replace(/\\/g, '/').replace(/^\/.*?\/(?=[A-Za-z]:\/)/, '')
 
 const GOAL =
   'Done when either: (A) npm test exits 0 in a run after the last edit, its output quoted in the reply; or (B) after 10 "Stop hook feedback" messages, a reply ends "GOAL CAPPED: <what is left>". Either one alone ends the goal. End each reply with "Goal turn N/10" (N = those messages + 1).'
@@ -245,4 +247,14 @@ test('a prompt box that cannot be read is left alone, and the toast does not cla
   await reply($, `Drafted.\n\`\`\`goal\n${GOAL}\n\`\`\`\n\`\`\`parts\nend: x\ncheck: y\nkeep: none\nlimit: 10\n\`\`\``)
   expect(r.box).toBe('')
   expect(r.toasts).toEqual(['/goal ready above the prompt'])
+})
+
+test('the 2026-10-24 eval fix: ++goal and ++loop tell Claude to run each check command once and avoid @{u} on a new branch', async ($, on) => {
+  const r = bottom(on, new Map())
+  for (const t of ['++goal fix the failing tests', '++loop keep fixing until the linter is clean']) {
+    await $.prompt.submit({ text: t, origin: { kind: 'composer' }, wait: false })
+    const ctx = r.context.join('\n')
+    expect(ctx).toContain('Run every command (A) names once now, read-only, and use it only if it worked in this checkout')
+    expect(ctx).toContain('a branch with no upstream has no @{u} and never shows "ahead"; for "not pushed", use git log --branches --not --remotes')
+  }
 })

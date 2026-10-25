@@ -28,11 +28,18 @@ export type DraftedCommand = {
   parts: { label: string; value: string }[]
   /** For deep: how many words your own request had, to set beside the rewrite's. */
   words?: number
+  /** For deep: whether Claude asked you questions before the rewrite, which raises its word cap. */
+  asked?: boolean
+  /** Grill mode (`++!`, `++d!`, …): drafted after an interview with no cap on rounds or length. */
+  grill?: boolean
+  /** Grill mode: the final ledger, counted. An open line is a fact the draft guessed. */
+  ledger?: { settled: number; open: number; assumed: number }
   /** For a panel: the experts, one per line Claude wrote. */
   experts?: PanelExpert[]
   /** For a panel: one "Done when, <reader>: <test>" line per reader of the result. */
   done?: PanelDone[]
-  /** For a panel: your request, word for word, as you sent it. Go hands it to the work, so the result is judged against it. */
+  /** For a panel: your request, word for word, as you sent it. Go hands it to the work, so the result is judged against it.
+   * For deep: the same, so the card can flag an output the rewrite adds that you never named. */
   request?: string
   /** For a panel: what the reply says outside the panel block, spaces collapsed. It may settle a choice you never made, so the card shows it. */
   note?: string
@@ -73,7 +80,7 @@ declare module 'claude-code' {
       /** A draft waiting for you; null for none. */
       ready: DraftedCommand | null
       /** What is being drafted and how many turns are left to catch it; null when nothing is. */
-      drafting: { kind: 'brief' | 'goal' | 'loop' | 'deep' | 'panel'; turnsLeft: number; words?: number; request?: string } | null
+      drafting: { kind: 'brief' | 'goal' | 'loop' | 'deep' | 'panel'; turnsLeft: number; words?: number; request?: string; grill?: boolean } | null
       /** After a panel's Go: the request the work must be traced back to, checked when that turn ends; null otherwise. */
       tracing: { request: string; needs: { quote: string; person: boolean }[]; turns: number } | null
       /** The `==` grammar card; null for none. */

@@ -38,6 +38,15 @@ const TASTE =
 const QUIET =
   /\b(?:if|when)\s+(?:nothing|no\s+(?:change|changes|news|new)\b|unchanged|quiet|all is quiet|everything is (?:green|quiet))|\bnothing\s+(?:new\s+)?to report\b|\bsay so in one (?:line|sentence)\b|沒有變化|没有变化|無變化|无变化/i
 
+/**
+ * A check that needs an upstream branch. Both goal drafts in the 2026-10-24 eval used one, on a branch
+ * that had none: `git rev-parse @{u}` fails and `git status -sb` never shows "ahead", so the end state
+ * could never be met, or the no-push guard proved nothing.
+ */
+const UPSTREAM = /@\{(?:u|upstream)\}|\bstatus\s+-sb\b[^;]*\bahead\b/i
+const UPSTREAM_HINT =
+  '"@{u}" or "ahead" needs an upstream branch, which a new branch lacks: for "not pushed", git log --branches --not --remotes lists commits on no remote'
+
 /** What a /goal condition's judge could not use, one short line each. `userOnly` are skill names Claude cannot call. */
 export function lintGoal(args: string, userOnly: readonly string[] = []): string[] {
   const out: string[] = []
@@ -58,6 +67,7 @@ export function lintGoal(args: string, userOnly: readonly string[] = []): string
   if (CLOCK.test(args)) out.push('clock deadline: the judge has no clock, only times printed in the chat')
   const taste = args.match(TASTE)
   if (taste) out.push(`"${taste[0]}" cannot be judged from the chat`)
+  if (UPSTREAM.test(args)) out.push(UPSTREAM_HINT)
   out.push(...userOnlyHits(args, userOnly, 'Claude cannot call it'))
   return out
 }
@@ -66,12 +76,20 @@ export function lintGoal(args: string, userOnly: readonly string[] = []): string
 export function lintLoop(args: string, userOnly: readonly string[] = []): string[] {
   const out: string[] = []
   if (!QUIET.test(args)) out.push('no one-line report for a quiet pass')
-  out.push(...userOnlyHits(args, userOnly, 'a loop pass gets it as plain text'))
+  // "Type /x yourself" is the reminder a loop should give, not a step it runs (2026-10-25 re-run: 3 of 3 flagged)
+  out.push(...userOnlyHits(args, userOnly, 'a loop pass gets it as plain text', true))
   return out
 }
 
 /** A deeper prompt is the same task done better, not more of it: the ++deep instruction caps the rewrite here. */
 export const DEEP_WORDS = 150
+/**
+ * The cap when Claude asked you questions before the rewrite. The 2026-10-25 re-run: once ++deep asked for the
+ * family's facts, two of three rewrites ran 151 and 174 words only because they carried the answers.
+ */
+export const DEEP_WORDS_ASKED = 200
+/** More done-when lines than this and a panel is several deliverables (the 2026-10-25 re-run: 6 to 9 readers). */
+export const PANEL_DONE_MAX = 6
 
 /** How many words a text has. */
 export const wordCount = (text: string) => text.split(/\s+/).filter(w => w !== '').length
@@ -90,18 +108,57 @@ const SELF =
 const OUTSIDE =
   /`|\b(?:tests?|pass(?:es)?|exits?|measure(?:d|ment|s)?|benchmark|metrics?|scores?|counts?|compare[sd]?|against|match(?:es|ed)?|known|reference|spec|users?|customers?|experts?|independent|instrument|validator|checker|linter|ci|diff|recount)\b/i
 
-/** What a ++deep draft lacks, one short line each. `proof` is its proof part; `userOnly` are skill names Claude cannot call. */
-export function lintDeep(proof: string | undefined, rewrite: string, userOnly: readonly string[] = []): string[] {
+/**
+ * An output a rewrite can add without saying so: a kind of output named right after a verb that makes one.
+ * The 2026-10-24 eval: "plan a week of dinners" came back asking for a per-serving nutrient breakdown, a second
+ * deliverable the request never named. The verb matters: "not the ticket summary" or "read the diagram" is a source.
+ */
+const OUTPUT_NOUN =
+  /\b(?:tables?|spreadsheets?|dashboards?|charts?|graphs?|diagrams?|slides?|decks?|analys[ie]s|breakdowns?|score ?sheets?|scorecards?|summar(?:y|ies))\b/gi
+const MAKES_OUTPUT = new RegExp(
+  `\\b(?:give|add|make|build|produce|create|write|draw|include|return|put\\b[^.]{0,30}?\\bin(?:to)?)\\b[^.]{0,40}?${OUTPUT_NOUN.source}`,
+  'gi',
+)
+/**
+ * A ban, not an ask: "do not add … any nutrition table" names the output only to keep it out (the 2026-10-25
+ * re-run). The negation must sit just before the verb, at most two words away, with no clause break between.
+ */
+const BANNED = /\b(?:not|never|no|nor|without|don'?t)\s+(?:\w+\s+){0,2}$/i
+/** Singular and plural as one: "table" and "tables", "analysis" and "analyses". */
+const stem = (w: string) => w.toLowerCase().replace(/\s+/g, '').slice(0, 4)
+
+/**
+ * What a ++deep draft lacks, one short line each. `proof` is its proof part; `userOnly` are skill names Claude
+ * cannot call; `request` is your own request, when the card has it, to tell an output you never named; `asked` is
+ * whether Claude asked you questions first, which earns the rewrite room for your answers.
+ */
+export function lintDeep(
+  proof: string | undefined,
+  rewrite: string,
+  userOnly: readonly string[] = [],
+  request?: string,
+  asked = false,
+  grill = false,
+): string[] {
   const out: string[] = []
   if (rewrite.trim() === '') out.push('no rewritten prompt: nothing to send')
   const n = wordCount(rewrite)
-  if (n > DEEP_WORDS) out.push(`the rewrite is ${n} words: bigger, not deeper?`)
+  // grill mode has no word cap: its trace rule, not a count, keeps the rewrite to what the ledger holds
+  if (!grill && n > (asked ? DEEP_WORDS_ASKED : DEEP_WORDS)) out.push(`the rewrite is ${n} words: bigger, not deeper?`)
   if (proof !== undefined) {
     const outside = OUTSIDE.test(proof)
     // a taste word beside a measurement ("a load test shows it robust") is a description, not the check
     const taste = outside ? null : proof.match(TASTE)
     if (SELF.test(proof) && !outside) out.push('the proof is only you or me looking: name an outside check')
     else if (taste) out.push(`the proof "${taste[0]}" is a taste word, not an outside check`)
+  }
+  if (request !== undefined) {
+    const asked = new Set((request.match(OUTPUT_NOUN) ?? []).map(stem))
+    const added = [...rewrite.matchAll(MAKES_OUTPUT)]
+      .filter(m => !BANNED.test(rewrite.slice(Math.max(0, m.index - 30), m.index)))
+      .map(m => m[0].match(OUTPUT_NOUN)!.at(-1)!)
+      .find(w => !asked.has(stem(w)))
+    if (added) out.push(`the rewrite asks for "${added.toLowerCase()}", which your request never named: a new deliverable?`)
   }
   // "First I'll type /x" is what the instruction asks for: only a step Claude would run is flagged
   out.push(...userOnlyHits(rewrite, userOnly, 'Claude cannot call it, so you type it', true))
@@ -284,6 +341,7 @@ export function lintPanel(
   outside = 0,
   done?: readonly PanelDone[],
   request?: string,
+  grill = false,
 ): string[] {
   const out: string[] = []
   if (experts.length !== 5) out.push(`${experts.length} experts, not five`)
@@ -314,6 +372,7 @@ export function lintPanel(
   const persons = hasRequest ? namedPersons(request) : []
   if (done !== undefined) {
     if (done.length === 0) out.push('no "Done when, <reader>:" line: name each reader of the result and the test that settles it')
+    if (!grill && done.length > PANEL_DONE_MAX) out.push(`${done.length} done-when lines, more than ${PANEL_DONE_MAX}: merge readers who need the same thing`)
     if (hasRequest) {
       for (const p of persons) {
         if (!done.some(d => readerIs(d.reader, p))) first.push(`no done-when line for "${p.noun}", whom the request names`)

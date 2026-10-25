@@ -10,7 +10,9 @@ const BAND = {
   view: {},
 }
 // On Windows the engine hands fs hooks backslash paths: key the fake folders by forward slashes.
-const posix = (p: string) => p.replace(/\\/g, '/')
+// Elsewhere a drive-letter stand-in is not absolute, so the engine resolves it against the working
+// folder (/…/prompt-enhancer/C:/work/vault/…): drop that prefix to reach the same key.
+const posix = (p: string) => p.replace(/\\/g, '/').replace(/^\/.*?\/(?=[A-Za-z]:\/)/, '')
 
 /** The engine beneath the mod: a prompt box, toasts, what reached Claude, and a skills folder in memory. */
 function bottom(on: Parameters<TestBody>[1], files = new Map<string, string>(), opts: { noBox?: boolean } = {}) {

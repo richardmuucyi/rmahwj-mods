@@ -4,7 +4,7 @@ import type { EngineInterface, ModelCompleteResult, Register, RenderElement } fr
 import type { DraftedCommand, GrammarCard, PanelDone, PanelExpert } from '../types'
 import { EFFORT, MAX_TOKENS, MODEL, SYSTEM, TIMEOUT_MS, eligible, frame, label, parseCheck, review, rows } from './grammar'
 import type { Check, Seg } from './grammar'
-import { DEEP_WORDS, GOAL_LIMIT, isPersonReader, lintDeep, lintGoal, lintLoop, lintPanel, userOnlyName, wordCount } from './lint'
+import { DEEP_WORDS, DEEP_WORDS_ASKED, GOAL_LIMIT, PANEL_DONE_MAX, isPersonReader, lintDeep, lintGoal, lintLoop, lintPanel, userOnlyName, wordCount } from './lint'
 
 // `++` makes no extra model call: each feature attaches a short instruction to
 // your own prompt, and the session's Claude, with everything it already has
@@ -110,7 +110,7 @@ const CAP = (k: string) =>
   `or (B) after ${k} "Stop hook feedback" messages, a reply ends "GOAL CAPPED: <what is left>". Either one alone ends the goal. End each reply with "Goal turn N/${k}" (N = those messages + 1).`
 
 /** What part (A) of a goal must hold, shared by ++goal and a loop request that is really a goal. */
-const GOAL_RULES = `In (A): one end state that command output shows (an exit code, a count, an empty list), the check run after the last edit with its output quoted in the reply, and each constraint with the output that shows it ("git diff --stat lists only src/auth"). A before/after constraint ("count not below the start", "PID unchanged") saves its start value to a file first, and the final reply quotes that file beside the new value: the judge may not see early messages. A check script you write must be shown failing once on a deliberately broken input. When my request asks for quality or no gaps, file names or heading counts do not show it: add a check that does (a test, a read-back, or a fresh reviewer subagent's quoted verdict). No taste words ("production-ready", "looks good") and no clock deadline: the judge has no clock, only times printed in the chat. Copy the (B) sentence word for word, with your number in place of both Ks; leave <what is left> and N as they are.`
+const GOAL_RULES = `In (A): one end state that command output shows (an exit code, a count, an empty list), the check run after the last edit with its output quoted in the reply, and each constraint with the output that shows it ("git diff --stat lists only src/auth"). A before/after constraint ("count not below the start", "PID unchanged") saves its start value to a file first, and the final reply quotes that file beside the new value: the judge may not see early messages. A check script you write must be shown failing once on a deliberately broken input. Run every command (A) names once now, read-only, and use it only if it worked in this checkout: a branch with no upstream has no @{u} and never shows "ahead"; for "not pushed", use git log --branches --not --remotes (commits on no remote). When my request asks for quality or no gaps, file names or heading counts do not show it: add a check that does (a test, a read-back, or a fresh reviewer subagent's quoted verdict). No taste words ("production-ready", "looks good") and no clock deadline: the judge has no clock, only times printed in the chat. Copy the (B) sentence word for word, with your number in place of both Ks; leave <what is left> and N as they are.`
 
 /** The reply shape the card reads for a goal. */
 const GOAL_REPLY = `the condition alone in a fenced code block tagged goal, then its parts in a fenced code block tagged parts, one line each:
@@ -150,14 +150,14 @@ never: … (or "none")`
  * (2026-10-19); the rest makes the answers concrete enough to act on and keeps the size.
  */
 const DEEPEN = `I want a deeper version of my request above, not a bigger one. Do not start the work. Before rewriting it:
-1. If the field or the deliverable is unclear enough to change your answers, ask me first (AskUserQuestion, at most 2 questions). Otherwise do not ask.
+1. Ask me first (AskUserQuestion, at most 3 questions) when the field or the deliverable is unclear enough to change your answers, or when my request leaves out facts only I know that would change the result: who it is for, where, and the limits of time, money or taste. Ask them now: never move them into the rewrite as a step for later. Otherwise do not ask.
 2. Answer four questions, specific to this request, one line each, under 200 characters:
    (1) what a top professional in this field would do here that I am not asking for;
    (2) the rawest material they would start from instead of what has already been digested for me, and where it is (a file, a URL, a command, a dataset). You may read files or run read-only commands to find it; if it is out of reach, say so;
    (3) the specific methods and tools they would use, by name;
    (4) what, other than you or me, would show the result is right: a test, a measurement, a known answer to compare with, or a person who is neither of us. Never "you review it" or a taste word ("looks good", "polished").
    Read a file before you say what it holds. Name only a path, command or commit you have checked exists; mark anything you could not check "(unchecked)".
-3. Then rewrite my prompt to ask for exactly that. Same deliverable and about the same amount of work: add the raw material, the methods and the proof as steps, add no new deliverables, and keep my own words where they work. Every step serves my one deliverable (finds its material, makes it, or checks it); a second result is a new deliverable even as a last step: a further report, an audit of something else, a new script. Anything you marked "(unchecked)" goes into the rewrite as a check-first step with a fallback ("first confirm X exists; if it does not, do Y instead"), never as a plain step that assumes it. Under ${DEEP_WORDS} words.
+3. Then rewrite my prompt to ask for exactly that. Same deliverable and about the same amount of work: add the raw material, the methods and the proof as steps, add no new deliverables, and keep my own words where they work. Every step serves my one deliverable (finds its material, makes it, or checks it); a second result is a new deliverable even as a last step: a further report, an audit of something else, a new script. Add no new kind of output either: a table, score sheet, breakdown or analysis my request does not name is a new deliverable. The proof checks the result; its numbers are not added to what I get unless I asked for them. Anything you marked "(unchecked)" goes into the rewrite as a check-first step with a fallback ("first confirm X exists; if it does not, do Y instead"), never as a plain step that assumes it. Under ${DEEP_WORDS} words, or ${DEEP_WORDS_ASKED} when you asked me questions first: the extra is only for my answers.
 4. Reply with the four answers in a fenced code block tagged deep, one line each:
 pro: …
 raw: …
@@ -188,7 +188,7 @@ const TRACE_RULE =
 const PANEL = `Before you start on my request above, pick the five experts from different fields who would make this outstanding, including two whose job is to find what's wrong with it. For each one, tell me what they would actually do and which methods they would use. Do not start the work in this turn; wait for my go-ahead or my corrections.
 - If a choice must be settled before the work (which tools I will use, a fixed time, a budget), ask me with AskUserQuestion before you write the panel. The panel reply itself asks nothing: the card shows only the panel.
 - Name each by field, not as an invented person: no personas, voices or quotes.
-- Name every reader of the result: each person, agent, team or later maintainer my request implies, not only the one you can test here. For each, write one done-when line that quotes, in double quotes, the words of my request that say what that reader needs, then a test that checks those very words, and who runs it ("run by …"). A person's test is run by a person (me, or someone I name), and a stated limit never replaces that; when none can run it here, still list it and say who must.
+- Name every reader of the result: each person, agent, team or later maintainer my request implies, not only the one you can test here. For each, write one done-when line that quotes, in double quotes, the words of my request that say what that reader needs, then a test that checks those very words, and who runs it ("run by …"). A person's test is run by a person (me, or someone I name), and a stated limit never replaces that; when none can run it here, still list it and say who must. At most ${PANEL_DONE_MAX} done-when lines: when two readers need the same thing (me asking and me reading), merge them into one line that quotes both. Every line tests the one deliverable my request asks for; a reader whose test needs a second deliverable is out of scope.
 - Pick methods that test what each reader needs, each named specifically ("think-aloud test", not "best practices"), and carry them out here where you can (read, run, test, measure, compare). Where one needs something you lack (a person, a lab, paid data), say so on its line, name the nearest step you can do, and say what that step cannot measure ("nearest step: a fresh subagent follows it; cannot measure: where a person gets lost").
 - Reply with the five, then the done-when lines, in one fenced code block tagged panel, with at most one short line outside it. One line per expert, under 200 characters before the nearest-step clause: the field, "(critic)" after it for the two critics, a colon, what they would do, then "methods:" and the methods by name. Each done-when line starts "Done when, <reader> ("<my words about that reader>"):", or "Done when, <reader> (implied):" for a reader my request implies but never mentions, and names who runs its test. In those lines "the owner" is me and "Claude" is you. The format only:
 Technical writer: turns each task into numbered steps a new hire can follow; methods: task analysis, plain-language review
@@ -283,6 +283,80 @@ const PANEL_REVISE =
   'Revise the panel as I ask, then reply with all five again, and the done-when lines, in a fenced code block tagged panel, in the same line format, with at most one short line outside it. Do not start the work in this turn.'
 
 const INSTRUCTION = { brief: CLARIFY, goal: GOAL, loop: LOOP, deep: DEEPEN, panel: PANEL } as const
+
+/**
+ * Grill mode (`++!`, `++g!`, `++l!`, `++d!`, `++p!`, 0.10.0, the owner's call 2026-10-25): an interview with
+ * no cap on rounds or length, run until a ledger of the facts the result needs has no open line. The
+ * 2026-10-24/25 evals showed the gaps that kept drafts under 8 were facts nobody asked for (the guide's form,
+ * a pass rule), and that drafts grow when limits loosen, so the length caps give way to a trace rule.
+ * 0.10.1, from the first grill eval: all 3 ++p! runs drafted the panel with 6-7 open ledger lines and asked
+ * nothing (the panel's "the panel reply itself asks nothing" won over the interview), and all 3 ++d! runs read
+ * daily and finance notes to guess the owner's household.
+ */
+const GRILL_INTERVIEW = `Grill mode: interview me until you hold every fact this result depends on, with no limit on rounds or length. First read the files about this request and run the read-only commands that could answer a question, and never ask what they answer. Do not search my private notes (daily notes, journal, personal areas) for facts about me, my family, health, money or relationships: ask me instead. Keep a ledger: start each reply that asks, and end the reply that drafts, with a fenced code block tagged ledger, one line per fact the result needs: "settled: <fact>: <value> (from me / from <file>)", "open: <fact>: <what its answer changes>" or "assumed: <fact>: <the value you will use>". Ask with AskUserQuestion, up to 4 questions per call (the tool's own limit), round after round: put the option you recommend first, marked (Recommended), and say in each question what its answer changes. Ask nothing whose answer would not change the result. When an answer opens a new gap, add it to the ledger as open and ask it. Draft only when no line is open, or when I say go or enough: then mark each open line assumed, with the value you will use.`
+const GRILL_TRACE =
+  'No length limit: write as much as the result needs, and no more. One deliverable, and every line of the draft traces to my request or to a settled or assumed ledger line; add nothing they do not hold.'
+/** The plain instruction with its caps on questions, rounds and length taken out, and the interview put in. */
+function grillInstruction(kind: Kind): string {
+  const cut = (text: string, pairs: [string, string][]) => pairs.reduce((t, [a, b]) => t.split(a).join(b), text)
+  const rounds: [string, string] = [
+    ' At most 3 rounds: if a part is still open after that, pick the safest choice and name it in your reply.',
+    '',
+  ]
+  const perRound: [string, string] = ['(at most 4 questions per round)', '(up to 4 questions per call)']
+  switch (kind) {
+    case 'brief':
+      return cut(CLARIFY, [
+        ['If something matters, ask me (AskUserQuestion, at most 4 questions, multiple choice where possible). Skip what I already said.', `Skip what I already said. ${GRILL_INTERVIEW}`],
+        ['restate the task as a short brief, under 120 words, in a fenced code block', 'restate the task as a brief, in a fenced code block'],
+      ]) + `\n${GRILL_TRACE}`
+    case 'goal':
+      return cut(GOAL, [rounds, perRound, [`Then write ONE condition, under ${MAX} characters.`, `Then write ONE condition, under ${GOAL_LIMIT.toLocaleString('en')} characters (the most /goal accepts).`]]) +
+        `\n${GRILL_INTERVIEW}\n${GRILL_TRACE}`
+    case 'loop':
+      return cut(LOOP, [
+        rounds,
+        perRound,
+        [`draft a goal instead, under ${MAX} characters,`, `draft a goal instead, under ${GOAL_LIMIT.toLocaleString('en')} characters,`],
+        [`Then write ONE /loop line, under ${MAX} characters.`, 'Then write ONE /loop line.'],
+      ]) + `\n${GRILL_INTERVIEW}\n${GRILL_TRACE}`
+    case 'deep':
+      return cut(DEEPEN, [
+        [
+          '1. Ask me first (AskUserQuestion, at most 3 questions) when the field or the deliverable is unclear enough to change your answers, or when my request leaves out facts only I know that would change the result: who it is for, where, and the limits of time, money or taste. Ask them now: never move them into the rewrite as a step for later. Otherwise do not ask.',
+          `1. ${GRILL_INTERVIEW} Facts only I know matter most here: who it is for, where, and the limits of time, money or taste. Never move a question into the rewrite as a step for later.`,
+        ],
+        ['one line each, under 200 characters:', 'one line each:'],
+        [` Under ${DEEP_WORDS} words, or ${DEEP_WORDS_ASKED} when you asked me questions first: the extra is only for my answers.`, ` ${GRILL_TRACE}`],
+      ])
+    case 'panel':
+      return cut(PANEL, [
+        [
+          '- If a choice must be settled before the work (which tools I will use, a fixed time, a budget), ask me with AskUserQuestion before you write the panel.',
+          `- ${GRILL_INTERVIEW} The ledger covers every choice the work needs: the deliverable's form and where it is saved, which tools I will use, time and budget.`,
+        ],
+        ['One line per expert, under 200 characters before the nearest-step clause:', 'One line per expert:'],
+        [`At most ${PANEL_DONE_MAX} done-when lines: when two readers need the same thing`, 'When two readers need the same thing'],
+        ['with at most one short line outside it.', 'with the ledger block and at most one short line outside it.'],
+        [
+          'The panel reply itself asks nothing: the card shows only the panel.',
+          'Ask in the replies before the panel: the reply that holds the panel asks nothing, and it comes only when no ledger line is open.',
+        ],
+      ]) + `\n${GRILL_TRACE}`
+  }
+}
+
+/** A grill reply's ledger, counted: the last fenced block tagged ledger, one fact per line. */
+function readLedger(answer: string): { settled: number; open: number; assumed: number } | null {
+  const f = fences(answer, 'ledger').at(-1)
+  if (f === undefined) return null
+  const lines = f.body.split('\n').map(l => l.replace(/^[\s>*-]+/, '').trim().toLowerCase())
+  const count = (w: string) => lines.filter(l => l.startsWith(`${w}:`) || l.startsWith(`${w} `)).length
+  return { settled: count('settled'), open: count('open'), assumed: count('assumed') }
+}
+/** The answer with its ledger blocks taken out, so a panel's note is only what it says outside both blocks. */
+const withoutLedger = (answer: string) =>
+  fences(answer, 'ledger').reduceRight((a, f) => `${a.slice(0, f.start)}${a.slice(f.end)}`, answer)
 
 /**
  * Every fenced block tagged `tag`, in order: its body, and where the whole block sits in the answer.
@@ -419,7 +493,7 @@ function findDraft(answer: string, asked: Kind): DraftedCommand | null {
     const f = fences(answer, 'panel')[0]
     if (f === undefined || f.body === '') return null
     // what it says outside the block: the re-check saw a plan-changing assumption there in 194 characters
-    const note = `${answer.slice(0, f.start)} ${answer.slice(f.end)}`.replace(/\s+/g, ' ').trim()
+    const note = withoutLedger(`${answer.slice(0, f.start)} ${answer.slice(f.end)}`).replace(/\s+/g, ' ').trim()
     return { kind: 'panel', args: f.body, parts: [], ...parsePanel(f.body), note }
   }
   if (asked === 'deep') {
@@ -661,8 +735,10 @@ export const register: Register = (on, options) => {
     // must touch the "++" too, so "++ deep dive", "++deeper", "++do", "++ panel notes" and "++please" stay briefs.
     // A word or letter counts only when a space, a colon or the end follows it: "++deep-dive", "++goal-setting",
     // "++panel's" and "++deep, then" are briefs (a hyphen or comma once started the mode with "-dive" as the request).
-    const m = text.match(/^\+\+(?:\s*(goal|loop)(?=[\s:]|$)[:\s]*|(deep|panel)(?=[\s:]|$)[:\s]*|([gldp])(?::\s*|\s+|$))/i)
-    const word = (m?.[1] ?? m?.[2] ?? m?.[3])?.toLowerCase()
+    // A "!" right after the mode is grill mode (0.10.0): "++!", "++g!", "++goal!", "++d!", "++panel!".
+    const m = text.match(/^\+\+(?:\s*(goal|loop)(!?)(?=[\s:]|$)[:\s]*|(deep|panel)(!?)(?=[\s:]|$)[:\s]*|([gldp])(!?)(?::\s*|\s+|$)|(!)(?=\s|$)\s*)/i)
+    const word = (m?.[1] ?? m?.[3] ?? m?.[5])?.toLowerCase()
+    const grill = Boolean(m?.[2] || m?.[4] || m?.[6] || m?.[7])
     const kind: Kind =
       word === undefined
         ? 'brief'
@@ -675,12 +751,13 @@ export const register: Register = (on, options) => {
               : 'loop'
     const request = text.slice(m ? m[0].length : 2).trim()
     if (request === '') return next(e)
-    // a panel keeps your words: its card holds the done-when lines to them, and ▶ Go hands them to the work
-    await update($, drafting, () => ({ kind, turnsLeft: DRAFT_TURNS, words: wordCount(request), ...(kind === 'panel' ? { request } : {}) }))
+    // a panel keeps your words: its card holds the done-when lines to them, and ▶ Go hands them to the work;
+    // a deep rewrite keeps them so the card can tell an output you never named
+    await update($, drafting, () => ({ kind, turnsLeft: DRAFT_TURNS, words: wordCount(request), ...(grill ? { grill } : {}), ...(kind === 'panel' || kind === 'deep' ? { request } : {}) }))
     // a new request ends the trace check of the work before it
     await update($, tracing, () => null)
     await update($, ready, () => null)
-    let instruction: string = INSTRUCTION[kind]
+    let instruction: string = grill ? grillInstruction(kind) : INSTRUCTION[kind]
     if (kind !== 'brief') {
       const names = await userOnlySkills($).catch(() => [])
       const list = names.map(n => `/${n}`).join(', ')
@@ -748,9 +825,15 @@ export const register: Register = (on, options) => {
       await update($, drafting, () => null)
       // the card checks a goal, loop, rewrite or panel against the user-only skills: know them before it draws
       if (found.kind !== 'brief' && userOnly === null) await userOnlySkills($).catch(() => [])
+      // grill mode: the card shows the final ledger, so a fact left open is flagged rather than guessed silently
+      if (d.grill === true) {
+        found.grill = true
+        const ledger = readLedger(e.answer)
+        if (ledger !== null) found.ledger = ledger
+      }
       await update($, ready, () =>
         found.kind === 'deep'
-          ? { ...found, words: d.words }
+          ? { ...found, words: d.words, asked: d.turnsLeft < DRAFT_TURNS, ...(d.request !== undefined ? { request: d.request } : {}) }
           : found.kind === 'panel' && d.request !== undefined
             ? { ...found, request: d.request }
             : found,
@@ -774,6 +857,10 @@ export const register: Register = (on, options) => {
               : `${what} ready above the prompt`,
         )
       }
+    } else if (d.grill === true) {
+      // an interview has no turn limit: it waits for the draft, your next ++ request, or nothing at all
+      const ledger = readLedger(e.answer)
+      if (ledger !== null) $.ui.toast(`Grill: ${ledger.settled + ledger.assumed} settled, ${ledger.open} open`)
     } else {
       await update($, drafting, v => (v === null || v.turnsLeft <= 1 ? null : { ...v, turnsLeft: v.turnsLeft - 1 }))
     }
@@ -828,9 +915,24 @@ export const register: Register = (on, options) => {
     // What the judge or the loop could not use, read from the command text itself.
     if (kind === 'goal') gaps.push(...lintGoal(r.args, userOnly ?? []))
     if (kind === 'loop') gaps.push(...lintLoop(r.args, userOnly ?? []))
-    if (kind === 'deep') gaps.push(...lintDeep(byLabel.get('proof'), r.args, userOnly ?? []))
+    if (kind === 'deep') gaps.push(...lintDeep(byLabel.get('proof'), r.args, userOnly ?? [], r.request, r.asked === true, r.grill === true))
     // a card from before 0.9.1 has no done lines and one from before 0.9.2 no request: neither is judged on them
-    if (kind === 'panel') gaps.push(...lintPanel(r.experts ?? [], userOnly ?? [], (r.note ?? '').length, r.done, r.request))
+    if (kind === 'panel') gaps.push(...lintPanel(r.experts ?? [], userOnly ?? [], (r.note ?? '').length, r.done, r.request, r.grill === true))
+    if (r.grill === true) {
+      const l = r.ledger
+      if (l === undefined) gaps.push('no ledger: grill mode drafts from one, so nothing shows what was settled')
+      else {
+        if (l.open > 0) gaps.push(`${l.open} ledger ${l.open === 1 ? 'fact is' : 'facts are'} still open: the draft guessed ${l.open === 1 ? 'it' : 'them'}`)
+        rows.push(
+          <Text key="pe-ledger" wrap="wrap">
+            <Text bold color={accent}>
+              {`${'🧾 Ledger'.padEnd(labelWidth)} `}
+            </Text>
+            <Text>{`${l.settled} settled${l.assumed > 0 ? ` · ${l.assumed} assumed` : ''}${l.open > 0 ? ` · ${l.open} open` : ''}`}</Text>
+          </Text>,
+        )
+      }
+    }
     const tooLong = kind === 'goal' && r.args.length > GOAL_LIMIT
     // what this card puts in the box: the command, or for deep the rewritten prompt itself
     const cmd = kind === 'deep' ? r.args : `/${kind} ${r.args}`

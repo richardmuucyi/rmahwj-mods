@@ -11,7 +11,9 @@ const BAND = {
 }
 const fold = (s: string | undefined) => (s ?? '').replace(/\s+/g, ' ').trim()
 // On Windows the engine hands fs hooks backslash paths: key the fake folders by forward slashes.
-const posix = (p: string) => p.replace(/\\/g, '/')
+// Elsewhere a drive-letter stand-in is not absolute, so the engine resolves it against the working
+// folder (/…/prompt-enhancer/C:/work/vault/…): drop that prefix to reach the same key.
+const posix = (p: string) => p.replace(/\\/g, '/').replace(/^\/.*?\/(?=[A-Za-z]:\/)/, '')
 
 // A ++deep reply in the shape its instruction asks for.
 const LENS =
@@ -75,7 +77,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(instruction).toContain('what, other than you or me, would show the result is right')
     expect(instruction).toContain('Then rewrite my prompt to ask for exactly that.')
     expect(instruction).toContain('add no new deliverables')
-    expect(instruction).toContain('Under 150 words.')
+    // the cap grew a second figure on 2026-10-25, for a rewrite that carries the answers to Claude's questions
+    expect(instruction).toContain('Under 150 words, or 200 when you asked me questions first: the extra is only for my answers.')
     expect(instruction).toContain('fenced code block tagged deep')
     expect(instruction).toContain('fenced code block tagged prompt')
 
@@ -309,4 +312,34 @@ test('the card shows a long rewrite whole, and a 190-character answer uncut', as
   expect(text).toContain(fold(long))
   expect(text).toContain(`Start from ${raw}`)
   expect(r.box).toBe(long)
+})
+
+test('the 2026-10-24 eval fixes: ask for the facts only I know now, add no new kind of output, and the card flags one', async ($, on) => {
+  const r = bottom(on)
+  await $.prompt.submit({ text: '++d plan a week of healthy dinners for a family of four', origin: { kind: 'composer' }, wait: false })
+  const instruction = r.seen.at(-1)!.context.join('\n')
+  expect(instruction).toContain('or when my request leaves out facts only I know that would change the result: who it is for, where, and the limits of time, money or taste')
+  expect(instruction).toContain('never move them into the rewrite as a step for later')
+  expect(instruction).toContain('Add no new kind of output either: a table, score sheet, breakdown or analysis my request does not name is a new deliverable')
+  expect(instruction).toContain('its numbers are not added to what I get unless I asked for them')
+  const rewrite = 'Plan 7 dinners for two adults and two children on HPB My Healthy Plate. Give a per-serving nutrient breakdown for each. Done when each dinner passes the sodium check.'
+  await reply($, `Deeper.\n\`\`\`deep\n${LENS}\n\`\`\`\n\`\`\`prompt\n${rewrite}\n\`\`\``)
+  const b = await mount($)
+  expect(await cardText(b)).toContain('⚠ the rewrite asks for "breakdown", which your request never named: a new deliverable?')
+  await b.unmount()
+})
+
+test('the 2026-10-25 re-run fix: a rewrite that comes after questions is not called bigger for carrying the answers', async ($, on) => {
+  const r = bottom(on)
+  await $.prompt.submit({ text: '++d plan a week of healthy dinners for a family of four', origin: { kind: 'composer' }, wait: false })
+  // one turn of questions, then the draft: the rewrite may run past 150 words
+  await reply($, 'Three facts first.\n```questions\n1. Who eats?\n```')
+  const long = `${REWRITE} ${'Two adults and two children aged 8 and 11, no pork on Fridays. '.repeat(11)}`
+  await reply($, `Deeper.\n\`\`\`deep\n${LENS}\n\`\`\`\n\`\`\`prompt\n${long}\n\`\`\``, 2)
+  const b = await mount($)
+  const text = await cardText(b)
+  expect(text).toContain('DEEPER')
+  expect(text).not.toMatch(/bigger, not deeper/)
+  await b.unmount()
+  expect(r.seen.length).toBe(1)
 })
