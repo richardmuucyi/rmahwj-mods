@@ -7,7 +7,7 @@ Six small [Claude Code](https://claude.com/claude-code) mods: five by Richard Ma
 | [`assumptions`](assumptions) | Claude logs each assumption it makes. You review them in a panel, mark them right or wrong, and send a correction mid-task. |
 | [`image-open`](image-open) | Paste an image with Alt+V and an `[open]` button appears above the prompt. It opens the full-size picture in your default viewer. Windows only. |
 | [`next-steps`](next-steps) | After each turn, up to three likely next prompts appear above the prompt. Press 1, 2 or 3 to put one in the prompt box as a draft, or 0 to dismiss. It makes one extra model call after each turn. By Thariq Shihipar, copied unchanged from [claude-plugins-community](https://github.com/anthropics/claude-plugins-community/tree/main/next-steps) under the MIT licence ([notice](next-steps/THIRD-PARTY-NOTICES.md)). |
-| [`prompt-enhancer`](prompt-enhancer) | `++ <request>` makes Claude check your request for gaps and restate it before any work. `++goal` and `++loop` draft a `/goal` or `/loop` for you. |
+| [`prompt-enhancer`](prompt-enhancer) | `++ <request>` makes Claude check your request for gaps and restate it before any work. `++goal` and `++loop` draft a `/goal` or `/loop` for you, `++deep` rewrites a prompt deeper and `++panel` runs it past five experts. Add `!` for grill mode, an interview with no cap on rounds. |
 | [`session-board`](session-board) | A strip above the prompt that shows other sessions that need you, plus a `/sessions` view and a context-size guard. |
 | [`usage-gauge`](usage-gauge) | Two rows under the prompt: model, cost, tokens, context and your 5-hour and weekly limits. |
 
