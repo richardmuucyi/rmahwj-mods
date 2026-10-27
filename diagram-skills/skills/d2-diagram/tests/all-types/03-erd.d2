@@ -1,0 +1,22 @@
+vars: { d2-config: { theme-id: 0; dark-theme-id: 200; pad: 40; layout-engine: elk } }
+direction: right
+title: "Link data" { shape: text; near: top-center; style.font-size: 20 }
+users: {
+  shape: sql_table
+  id: int {constraint: primary_key}
+  email: string
+}
+links: {
+  shape: sql_table
+  code: string {constraint: primary_key}
+  long_url: string
+  user_id: int {constraint: foreign_key}
+}
+clicks: {
+  shape: sql_table
+  id: int {constraint: primary_key}
+  code: string {constraint: foreign_key}
+  at: datetime
+}
+links.user_id -> users.id
+clicks.code -> links.code

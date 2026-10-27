@@ -1,0 +1,100 @@
+---
+title: "Harbour Traders Board Game — House Rules · One Player's Turn"
+---
+%% source: fictional example (a family board game, the order of play in one turn)
+graph TD
+    turn_start["<b>Your Turn Begins</b><br/>Pass the dice cup to the left<br/>+ flip the sand timer (2 minutes)"]
+    turn_start -.- turn_start_tip["Youngest player<br/>always goes first"]
+    turn_start --> roll_dice
+
+    %% ==========================================
+    %% STEP 1: ROLL
+    %% ==========================================
+    subgraph grp_roll ["Roll the Dice"]
+        direction TB
+        roll_dice["<b>Roll Two Dice</b><br/>add them up"]
+        roll_seven{Total is 7?}
+        roll_storm["<b>Storm at Sea</b><br/><i>move the storm token</i>"]
+        roll_harvest["Every harbour next to<br/>the rolled number collects fish"]
+        roll_dice --> roll_seven
+        roll_seven -->|Yes| roll_storm
+        roll_seven -->|No| roll_harvest
+        roll_storm -.- roll_storm_tip["Anyone holding more than<br/>8 cards drops half"]
+    end
+
+    %% ==========================================
+    %% STEP 2: TRADE
+    %% ==========================================
+    subgraph grp_trade ["Trade with Others"]
+        direction TB
+        trade_offer[Offer a Swap Out Loud]
+        trade_taker{Anyone Takes It?}
+        trade_done[Swap the Cards]
+        trade_market["Trade 3 of a kind<br/>with the Market"]
+        trade_offer --> trade_taker
+        trade_taker -->|Yes| trade_done
+        trade_taker -->|No one| trade_market
+    end
+
+    %% ==========================================
+    %% STEP 3: BUILD
+    %% ==========================================
+    subgraph grp_build ["Build"]
+        direction TB
+        build_pick{What to Build?}
+        build_pier["<b>Pier</b><br/>1 wood + 1 rope"]
+        build_boat["<b>Fishing Boat</b><br/>2 wood + 1 sail<br/><i>must touch a pier</i>"]
+        build_light["<b>Lighthouse</b><br/>3 stone + 2 fish<br/><i>upgrades a harbour</i>"]
+        build_skip[Build Nothing]
+        build_pick -->|Cheap| build_pier
+        build_pick -->|Medium| build_boat
+        build_pick -->|Big| build_light
+        build_pick -->|Saving up| build_skip
+        build_light -.- build_light_tip["Only 4 lighthouses in the box<br/>first come, first served"]
+    end
+
+    %% ==========================================
+    %% STEP 4: CARDS & SCORE
+    %% ==========================================
+    subgraph grp_score ["Tide Cards & Score"]
+        direction TB
+        score_draw{Drew a Tide Card<br/>This Turn?}
+        score_play["Play it now<br/>or keep it face down"]
+        score_count[Count Your Points]
+        score_ten{10 Points or More?}
+        score_win(["<b>You Win!</b>"])
+        score_next["Pass the dice cup"]
+        score_draw -->|Yes| score_play
+        score_draw -->|No| score_count
+        score_play --> score_count
+        score_count --> score_ten
+        score_ten -->|Yes| score_win
+        score_ten -->|No| score_next
+    end
+
+    roll_storm --> trade_offer
+    roll_harvest --> trade_offer
+    trade_done --> build_pick
+    trade_market --> build_pick
+    build_pier --> score_draw
+    build_boat --> score_draw
+    build_light --> score_draw
+    build_skip -->|Timer ran out /<br/>nothing affordable| score_draw
+    score_next -.->|Next player| turn_start
+
+    %% ==========================================
+    %% STYLES
+    %% ==========================================
+    classDef step fill:#fff9c4,stroke:#fbc02d,stroke-width:2px
+    classDef tip fill:#f5f5f5,stroke:#333,stroke-dasharray: 5 5
+    classDef storm fill:#ffebee,stroke:#c62828,stroke-width:3px
+    classDef build fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    classDef pass fill:#ffccbc,stroke:#d84315,stroke-width:2px,stroke-dasharray: 5 5
+    classDef win fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+
+    class turn_start,roll_dice,roll_harvest,trade_offer,trade_done,trade_market,score_count step
+    class turn_start_tip,roll_storm_tip,build_light_tip tip
+    class roll_storm storm
+    class build_pier,build_boat,build_light build
+    class score_next,build_skip pass
+    class score_win win

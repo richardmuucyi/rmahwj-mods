@@ -1,0 +1,55 @@
+# L7 -- the reference vectors: a legend, tooltips and a click-through link.
+# The legend trap: an entry must be a CONNECTION to render as a line sample. Declaring
+# shapes with stroke colours draws coloured RECTANGLES that explain nothing, compiles
+# cleanly, and looks deliberate. The two endpoints are set to opacity 0 so only the
+# line survives.
+direction: right
+
+vars: {
+  d2-legend: {
+    a.style.opacity: 0
+    b.style.opacity: 0
+    a -> b: Synchronous REST {
+      style: {
+        stroke: "#1565C0"
+        stroke-width: 3
+      }
+    }
+    a -> b: Async via Kafka {
+      style: {
+        stroke: "#6A1B9A"
+        stroke-dash: 4
+      }
+    }
+  }
+}
+
+classes: {
+  sync: {
+    style: {
+      stroke: "#1565C0"
+      stroke-width: 3
+    }
+  }
+  async: {
+    style: {
+      stroke: "#6A1B9A"
+      stroke-dash: 4
+    }
+  }
+}
+
+shop: Online shop {
+  tooltip: Owns checkout and order history
+}
+payments: Payment gateway {
+  shape: cloud
+  tooltip: REST API v2
+}
+courier: Delivery service {shape: cloud}
+kafka: Order events {shape: queue}
+
+shop -> payments: take payment {class: sync}
+shop -> courier: book a slot {class: sync}
+shop -> kafka: publishes {class: async}
+kafka -> courier: consumer {class: async}

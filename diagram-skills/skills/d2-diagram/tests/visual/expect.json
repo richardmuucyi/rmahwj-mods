@@ -1,0 +1,14 @@
+{
+  "clipped-heading": {
+    "must_raise": ["markdown-clipped"],
+    "why": "the heading wraps inside the box d2 chose and its second line is cut off"
+  },
+  "icon-over-label": {
+    "must_raise": ["icon-over-label"],
+    "why": "the node was sized to its label, leaving no room for the icon"
+  },
+  "clean": {
+    "must_raise": [],
+    "why": "nothing is wrong; a reviewer that flags this is flagging edge labels"
+  }
+}

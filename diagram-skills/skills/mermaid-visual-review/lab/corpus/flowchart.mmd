@@ -1,0 +1,49 @@
+%% source: fictional example (recipe app, building next week's meal plan)
+flowchart TD
+    Open([Open Meal Planner]) --> HasPlan{Last Week's<br/>Plan Saved?}
+    HasPlan -->|Yes| CopyFaves[Copy Favourite Dinners]
+    HasPlan -->|No| BlankWeek[Start a Blank Week]
+    CopyFaves --> Mood
+    BlankWeek --> Mood{Cooking Mood<br/>This Week}
+
+    Mood -->|Quick| QuickSet[15-Minute Recipes]
+    Mood -->|Comfort| SlowSet[Slow-Cooker Recipes]
+    Mood -->|Adventurous| NewSet[New Cuisine Picks]
+
+    QuickSet --> FillSlots[Fill Seven Dinner Slots]
+    SlowSet --> FillSlots
+    NewSet --> FillSlots
+
+    FillSlots --> Leftovers{Leftover Night<br/>Wanted?}
+    Leftovers -->|Yes| MarkNight[Mark Thursday as Leftovers]
+    Leftovers -->|No| ReadPantry
+    MarkNight --> ReadPantry[Read Pantry List]
+
+    ReadPantry --> Missing{Anything<br/>Missing?}
+    Missing -->|Nothing| PlanReady[Plan Ready]
+    Missing -->|Some Items| BuildList[Build Shopping List]
+
+    BuildList --> MergeDupes[Merge Duplicate Items]
+    MergeDupes --> SortShelf[Sort by Shop Section]
+    SortShelf --> Delivery{Order<br/>Delivery?}
+
+    Delivery -->|No| PrintList[Print the List]
+    Delivery -->|Yes| SendBasket[Send Basket to Grocer]
+    PrintList --> PlanReady
+
+    SendBasket --> InStock{Everything<br/>In Stock?}
+    InStock -->|Yes| PlanReady
+    InStock -->|No| Substitute[Suggest Substitutes]
+    Substitute --> LikeSwap{Swap<br/>Looks Good?}
+    LikeSwap -->|Yes| PlanReady
+    LikeSwap -->|No| ReplaceMeal[Replace That Dinner]
+    ReplaceMeal --> ReadPantry
+
+    PlanReady --> PrepNotes[Schedule Prep Reminders]
+    PrepNotes --> SharePlan[Share Plan with Household]
+    SharePlan --> Close([Close Planner])
+
+    style Open fill:#90EE90
+    style Close fill:#FFB6C1
+    style ReplaceMeal fill:#FF6B6B
+    style PlanReady fill:#4CAF50

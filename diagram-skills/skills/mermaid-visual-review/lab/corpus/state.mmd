@@ -1,0 +1,56 @@
+%% source: fictional example (music player app, playback states of one track)
+stateDiagram-v2
+    [*] --> Stopped
+
+    Stopped --> Loading: Track Chosen
+    Loading --> Buffering: Stream Opened
+    Loading --> Unavailable: Track Removed
+
+    Buffering --> Playing: Buffer Full
+    Buffering --> Stalled: Network Slow
+    Stalled --> Buffering: Network Back
+    Stalled --> Offline: Network Gone
+
+    Playing --> Paused: Pause Pressed
+    Paused --> Playing: Play Pressed
+    Paused --> Stopped: Idle 30 Minutes
+
+    Playing --> Seeking: Scrubber Dragged
+    Seeking --> Buffering: New Position Set
+
+    Playing --> Ducked: Notification Sound
+    Ducked --> Playing: Sound Finished
+
+    Playing --> Crossfading: Ten Seconds Left
+    Crossfading --> Loading: Next Track Queued
+    Crossfading --> Ended: Queue Empty
+
+    Ended --> Loading: Repeat On
+    Ended --> Stopped: Player Closed
+
+    Offline --> LocalCopy: Track Downloaded
+    Offline --> Stopped: No Download
+    LocalCopy --> Paused: Pause Pressed
+    LocalCopy --> Buffering: Network Back
+
+    Unavailable --> Loading: Skip to Next
+    Unavailable --> Stopped: Nothing Queued
+
+    Playing --> Handoff: Speaker Picked
+    Handoff --> Casting: Speaker Ready
+    Handoff --> Playing: Speaker Lost
+    Casting --> Playing: Speaker Disconnected
+
+    Stopped --> [*]: App Closed
+
+    note right of Playing
+        Audio coming out of the phone
+        Position saved every few seconds
+        Lyrics scroll along
+    end note
+
+    note right of Offline
+        No connection at all
+        Only downloaded tracks can play
+        Queue keeps its order
+    end note

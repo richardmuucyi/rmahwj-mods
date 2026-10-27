@@ -1,0 +1,13 @@
+---
+title: Click path as blocks
+config:
+  block:
+    padding: 24
+---
+block-beta
+  columns 3
+  user["User"] decode["Decode service"] store[("Link store")]
+  space nsq["NSQ queue"] space
+  user --> decode
+  decode --> store
+  decode --> nsq

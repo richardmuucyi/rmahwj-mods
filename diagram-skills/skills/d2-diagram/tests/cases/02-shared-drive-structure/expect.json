@@ -1,0 +1,26 @@
+{
+  "complexity": 2,
+  "scenario": "Team shared-drive folder structure",
+  "teaches": "containers as grouping, dotted paths across containers",
+  "expected_type": "plain shapes + containers",
+  "type_alternatives": [
+    "grid"
+  ],
+  "vectors_offered": [
+    "containers",
+    "edge-labels"
+  ],
+  "compile": true,
+  "shapes": 11,
+  "edges": 3,
+  "must_contain_shapes": [
+    "drive",
+    "drive.intake",
+    "drive.projects.website",
+    "drive.archive.closed"
+  ],
+  "must_contain_text": [
+    "filed into"
+  ],
+  "max_aspect": 6.0
+}

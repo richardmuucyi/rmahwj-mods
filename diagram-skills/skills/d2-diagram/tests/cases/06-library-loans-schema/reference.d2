@@ -1,0 +1,37 @@
+# L6 -- a genre shape WITH a layout requirement. Under dagre a foreign key attaches to
+# the table as a whole; only ELK routes it to the exact row, which is the whole point
+# of drawing an ERD. The harness pins --layout=elk for this case for that reason.
+direction: right
+
+member: {
+  shape: sql_table
+  id: int {constraint: primary_key}
+  card_no: varchar {constraint: unique}
+  home_branch: char(3)
+  created_at: timestamp with time zone
+}
+
+loan: {
+  shape: sql_table
+  id: int {constraint: primary_key}
+  member_id: int {constraint: foreign_key}
+  book_id: int {constraint: foreign_key}
+  borrowed_at: timestamp with time zone
+  returned_at: timestamp with time zone
+}
+
+book: {
+  shape: sql_table
+  id: int {constraint: primary_key}
+  isbn: varchar
+  format: varchar
+}
+
+loan.member_id -> member.id: {
+  source-arrowhead.shape: cf-many
+  target-arrowhead.shape: cf-one-required
+}
+loan.book_id -> book.id: {
+  source-arrowhead.shape: cf-many
+  target-arrowhead.shape: cf-one-required
+}

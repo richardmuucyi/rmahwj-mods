@@ -1,0 +1,13 @@
+# CONTROL: the body uses `ext` but the legend never decodes it.
+# Criterion 9 must FAIL.
+...@_classes
+api: API {class: svc}
+db: Store {class: store}
+psp: Provider {class: ext}
+api -> db: writes
+api -> psp: authorises
+legend: "" {
+  near: bottom-center
+  L1: "Service" {class: svc}
+  L2: "Data store" {class: store}
+}

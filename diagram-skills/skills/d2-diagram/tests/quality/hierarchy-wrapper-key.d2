@@ -1,0 +1,9 @@
+# MUST WARN (criterion 11): a sequence_diagram wrapper with no label shows its KEY as a
+# 28px title -- "seq" printed over the diagram (genre gallery, 2026-10-18).
+seq: {
+  shape: sequence_diagram
+  user: User
+  svc: Service
+  user -> svc: request
+  svc -> user: reply
+}

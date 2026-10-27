@@ -1,0 +1,41 @@
+# L4 -- a glob states the rule once, and the exception is set explicitly AFTER it.
+# Order matters: globs are re-evaluated against everything, so the specific
+# assignment has to come last or the glob quietly wins.
+direction: right
+
+classes: {
+  station: {
+    style: {
+      fill: "#EEF3FA"
+      stroke: "#3B5C8F"
+    }
+  }
+  battery: {
+    style: {
+      fill: "#FBECEC"
+      stroke: "#C0392B"
+      stroke-dash: 3
+    }
+  }
+}
+
+ridge: Ridge stations {
+  s01: "S01 (battery backup)"
+  s02: S02
+  s03: S03
+  s04: S04
+}
+
+collector: Collector server
+forecast: Forecast service {shape: cloud}
+alerts: Alert service {shape: cloud}
+
+ridge.*.class: station
+ridge.s01.class: battery
+
+ridge.s01 -> collector: buffered readings
+ridge.s02 -> collector
+ridge.s03 -> collector
+ridge.s04 -> collector
+collector -> forecast: hourly upload
+collector -> alerts: storm warning check

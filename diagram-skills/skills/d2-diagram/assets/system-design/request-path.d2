@@ -1,0 +1,199 @@
+# How millions of users reach the services -- and why the tail stays short.
+#
+# The organising idea: latency is not won inside the services, it is won by NOT REACHING
+# them. Each tier answers some share of traffic and returns; only the remainder travels
+# further. The percentages below are DESIGN TARGETS used for capacity planning, not
+# measurements of any particular system.
+#
+# NOTE ON THE AWS ICON URLS: they contain `&`, which is D2's glob-filter operator, so
+# every one of them is quoted. Unquoted, the parse breaks. Each URL was HEAD-checked --
+# `aws/Storage/Amazon-S3.svg` 403s, which would have rendered as a silently missing icon.
+direction: down
+
+vars: {
+  d2-legend: {
+    a.style.opacity: 0
+    b.style.opacity: 0
+    a -> b: Request path {
+      style: {
+        stroke: "#1B48C4"
+        stroke-width: 3
+      }
+    }
+    a -> b: Served from cache, returns here {
+      style: {
+        stroke: "#1E6F45"
+        stroke-width: 3
+        stroke-dash: 2
+      }
+    }
+    a -> b: Asynchronous, off the hot path {
+      style: {
+        stroke: "#6A1B9A"
+        stroke-dash: 4
+      }
+    }
+    a -> b: Replication {
+      style: {
+        stroke: "#8592AC"
+        stroke-dash: 3
+      }
+    }
+  }
+}
+
+classes: {
+  box: {
+    width: 235
+    height: 205
+    style: {
+      fill: "#FFFFFF"
+      stroke: "#C7D2E5"
+      border-radius: 10
+    }
+  }
+  zone: {
+    style: {
+      fill: "#F5F8FD"
+      stroke: "#AFC0DA"
+    }
+  }
+  private: {
+    style: {
+      fill: "#F2F6FC"
+      stroke: "#7D93B8"
+      stroke-dash: 3
+    }
+  }
+  hit: {
+    style: {
+      stroke: "#1E6F45"
+      stroke-width: 3
+      stroke-dash: 2
+    }
+  }
+  hot: {
+    style: {
+      stroke: "#1B48C4"
+      stroke-width: 3
+    }
+  }
+  async: {
+    style: {
+      stroke: "#6A1B9A"
+      stroke-dash: 4
+    }
+  }
+  repl: {
+    style: {
+      stroke: "#8592AC"
+      stroke-dash: 3
+    }
+  }
+}
+
+title: "Serving millions -- the request path, and where it stops early" {
+  shape: text
+  near: top-center
+  style: {
+    font-size: 28
+    bold: true
+  }
+}
+
+caveat: "Percentages are design targets for capacity planning,\nnot measurements. Latencies are order-of-magnitude." {
+  shape: text
+  near: bottom-center
+  style: {
+    font-size: 15
+    italic: true
+  }
+}
+
+users: "Millions of users\nglobal, mobile + web" {
+  class: box
+  shape: image
+  icon: ../icons/people/actor-outline.svg
+  width: 54
+  height: 54
+  style.fill: "#EEF3FA"
+}
+
+dns: "Route 53\nlatency-based routing\nto the nearest region" {
+  class: box
+  icon: "https://icons.terrastruct.com/aws%2FNetworking%20%26%20Content%20Delivery%2FAmazon-Route-53.svg"
+}
+
+cdn: "CloudFront edge\n~90% of requests end here\nstatic + cacheable GETs" {
+  class: box
+  icon: "https://icons.terrastruct.com/aws%2FNetworking%20%26%20Content%20Delivery%2FAmazon-CloudFront.svg"
+  style.stroke: "#1E6F45"
+  style.stroke-width: 2
+}
+
+vpc: "VPC -- one region, 3 AZs" {
+  class: zone
+  icon: "https://icons.terrastruct.com/aws%2FNetworking%20%26%20Content%20Delivery%2FAmazon-VPC.svg"
+
+  public: "Public subnets" {
+    class: zone
+    alb: "Application LB\nL7, health-checked\nspreads across AZs" {
+      class: box
+      icon: "https://icons.terrastruct.com/aws%2FNetworking%20%26%20Content%20Delivery%2FElastic-Load-Balancing.svg"
+    }
+    gw: "API gateway\nauthn, rate limit, routing" {
+      class: box
+      icon: "https://icons.terrastruct.com/aws%2FMobile%2FAmazon-API-Gateway.svg"
+    }
+  }
+
+  app: "Private subnets -- no route to the internet" {
+    class: private
+    svc: "Microservices\ncatalog - orders - search\nstateless, autoscaled" {
+      class: box
+      icon: "https://icons.terrastruct.com/aws%2FCompute%2FAmazon-EC2.svg"
+    }
+    cache: "ElastiCache Redis\ncache-aside, ~95% hit\nsub-millisecond" {
+      class: box
+      icon: "https://icons.terrastruct.com/aws%2FDatabase%2FAmazon-ElastiCache.svg"
+      style.stroke: "#1E6F45"
+      style.stroke-width: 2
+    }
+    queue: "Queue\ndefers everything the user\ndoes not wait for" {
+      class: box
+      icon: "https://icons.terrastruct.com/aws%2FApplication%20Integration%2FAmazon-Simple-Queue-Service-SQS.svg"
+    }
+    workers: "Workers\nemail, search index,\nanalytics, billing" {
+      class: box
+      shape: queue
+      style.fill: "#F7F9FD"
+    }
+  }
+
+  data: "Data subnets -- reached by ~2% of requests" {
+    class: private
+    pool: "Connection pool\nPgBouncer\ncaps backend connections" {
+      class: box
+      shape: hexagon
+      style.fill: "#F7F9FD"
+    }
+    shards: "Sharded PostgreSQL\n4 shards, hash(tenant_id)\neach primary + 2 replicas" {
+      class: box
+      icon: "https://icons.terrastruct.com/dev%2Fpostgresql.svg"
+    }
+  }
+}
+
+users -> dns: DNS lookup {class: hot}
+dns -> cdn: nearest edge POP {class: hot}
+cdn -> users: "cache HIT -- ~90%, ~20 ms" {class: hit}
+cdn -> vpc.public.alb: "MISS: dynamic" {class: hot}
+vpc.public.alb -> vpc.public.gw: TLS terminated {class: hot}
+vpc.public.gw -> vpc.app.svc: routed by path {class: hot}
+vpc.app.svc -> vpc.app.cache: read-through {class: hot}
+vpc.app.cache -> vpc.app.svc: "HIT -- ~95%, <1 ms" {class: hit}
+vpc.app.svc -> vpc.data.pool: "MISS -- ~2% of all traffic" {class: hot}
+vpc.data.pool -> vpc.data.shards: pooled connection {class: hot}
+vpc.app.svc -> vpc.app.queue: enqueue and return {class: async}
+vpc.app.queue -> vpc.app.workers: consumed later {class: async}
+vpc.app.workers -> vpc.data.pool: writes off the hot path {class: async}

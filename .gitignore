@@ -1,0 +1,4 @@
+# Made by running a skill's scripts or tests in place; never part of a mod.
+__pycache__/
+.pytest_cache/
+node_modules/

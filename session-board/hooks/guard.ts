@@ -1,5 +1,4 @@
-// The context guard's logic, kept apart from the drawing so it can be tested alone. Design and numbers:
-// 90 System/Generated HTMLs/vault/context-guard-design.html (decided 2026-10-13). Pure functions only:
+// The context guard's logic, kept apart from the drawing so it can be tested alone. Pure functions only:
 // nothing here reads the engine, the clock or a file.
 
 export type Mode = 'off' | 'advise'

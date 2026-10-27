@@ -1,0 +1,6 @@
+{
+  "old-block": {"person": 1, "weak": ["#94a3b8", "#94a3b8", "#cbd5e1", "#cbd5e1"], "dim": ["#94a3b8"]},
+  "clean-block": {"person": 0, "weak": [], "dim": []},
+  "short-hex": {"person": 0, "weak": ["#ccc", "transparent"], "dim": []},
+  "dim-label": {"person": 0, "weak": [], "dim": ["#94a3b8", "#8794a6", "gray"]}
+}

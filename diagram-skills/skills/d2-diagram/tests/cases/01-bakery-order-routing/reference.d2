@@ -1,0 +1,16 @@
+# L1 -- branching, plus shape semantics carrying meaning that no label repeats.
+# oval = entry point, diamond = decision, cylinder = durable store.
+direction: down
+
+start: A new order arrives {shape: oval}
+makeable: Can we make it? {shape: diamond}
+today: Needed today? {shape: diamond}
+decline: Decline politely
+bake: Add to today's bake list
+book: "Pre-order book" {shape: cylinder}
+
+start -> makeable
+makeable -> today: yes
+makeable -> decline: no
+today -> bake: yes
+today -> book: "no -- book it for its date"

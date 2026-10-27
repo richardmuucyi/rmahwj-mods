@@ -1,0 +1,113 @@
+# Plain-English version. Every label is a NAME, not a sentence.
+#
+# The rule this file follows: a node gets 1-3 words. Anything longer belongs on an edge,
+# in the legend, or in the prose next to the diagram.
+#
+# NOTE: the key is `nearby`, not `near` -- `near` is a reserved keyword (it positions
+# things) and using it as a node name fails with "reserved keywords are prohibited in
+# edges". Keys are identifiers, labels are what people read, so renaming cost nothing. Meaning that would have been words
+# is carried by SHAPE instead -- person, cloud, cylinder, queue -- which costs no width.
+direction: down
+
+classes: {
+  stop: {
+    style: {
+      fill: "#E4F1E8"
+      stroke: "#1E6F45"
+      stroke-width: 2
+    }
+  }
+  work: {
+    style: {
+      fill: "#FFFFFF"
+      stroke: "#C7D2E5"
+    }
+  }
+  back: {
+    style: {
+      stroke: "#1E6F45"
+      stroke-width: 3
+      stroke-dash: 2
+    }
+  }
+  later: {
+    style: {
+      stroke: "#6A1B9A"
+      stroke-dash: 4
+    }
+  }
+}
+
+vars: {
+  d2-legend: {
+    a.style.opacity: 0
+    b.style.opacity: 0
+    a -> b: Your request going in {
+      style.stroke-width: 2
+    }
+    a -> b: Answer coming straight back {
+      style: {
+        stroke: "#1E6F45"
+        stroke-width: 3
+        stroke-dash: 2
+      }
+    }
+    a -> b: Done later, you do not wait {
+      style: {
+        stroke: "#6A1B9A"
+        stroke-dash: 4
+      }
+    }
+  }
+}
+
+title: How your request travels {
+  shape: text
+  near: top-center
+  style: {
+    font-size: 30
+    bold: true
+  }
+}
+
+you: You {
+  shape: image
+  icon: ../../icons/people/actor-outline.svg
+  width: 54
+  height: 54
+  class: work
+}
+
+nearby: Nearby copy {
+  shape: cloud
+  class: stop
+}
+
+door: Traffic director {class: work}
+desk: Front desk {class: work}
+crew: Workers {class: work}
+
+fast: Fast memory {
+  shape: cylinder
+  class: stop
+}
+
+store: Main storage {
+  shape: cylinder
+  class: work
+}
+
+list: Waiting list {
+  shape: queue
+  class: work
+}
+
+you -> nearby: I want a page
+nearby -> you: 9 out of 10 stop here {class: back}
+nearby -> door: the other 1
+door -> desk: pick a free desk
+desk -> crew: who handles this
+crew -> fast: seen this before?
+fast -> crew: nearly always yes {class: back}
+crew -> store: only if not
+crew -> list: slow jobs go here {class: later}

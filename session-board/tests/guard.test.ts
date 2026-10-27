@@ -157,7 +157,7 @@ const FACTS = {
   ctx: 412_000,
   branch: 'main',
   lastCommit: '650df709',
-  uncommitted: ['docs/session-board/hooks/guard.ts', '90 System/Generated HTMLs/vault/context-guard-design.html'],
+  uncommitted: ['docs/session-board/hooks/guard.ts', 'docs/notes/context-guard-design.html'],
   jobs: ['shell: render_upscales.py --sent', 'monitor: run_all_2x.log'],
   agents: ['Explore · haiku'],
   assumptions: ['A2', 'A5'],
@@ -190,7 +190,7 @@ test('compactInstructions: the facts block carries the board data, one path per 
   const t = compactInstructions({ trigger: 'auto', base: 'BASE', facts: FACTS })!
   expect(t).toContain('Context before compaction: 412K · branch main · last commit 650df709')
   expect(t).toContain('  - docs/session-board/hooks/guard.ts')
-  expect(t).toContain('  - 90 System/Generated HTMLs/vault/context-guard-design.html')
+  expect(t).toContain('  - docs/notes/context-guard-design.html')
   expect(t).toContain('  - shell: render_upscales.py --sent')
   expect(t).toContain('Subagents running: Explore · haiku')
   expect(t).toContain('Assumptions still open: A2, A5')

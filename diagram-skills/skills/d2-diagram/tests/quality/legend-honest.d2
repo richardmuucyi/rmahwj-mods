@@ -1,0 +1,11 @@
+# CONTROL: every legend row is used in the body, every used class has a row.
+# Criterion 9 must PASS.
+...@_classes
+api: API {class: svc}
+db: Store {class: store}
+api -> db: writes
+legend: "" {
+  near: bottom-center
+  L1: "Service" {class: svc}
+  L2: "Data store" {class: store}
+}

@@ -1,0 +1,7 @@
+---
+title: Shortening a link
+---
+flowchart LR
+  user([user]) -->|long URL| api[API layer]
+  api -->|saves| store[(link store)]
+  api -->|returns| short[bit.ly/xyz]

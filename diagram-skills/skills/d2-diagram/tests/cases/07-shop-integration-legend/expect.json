@@ -1,0 +1,32 @@
+{
+  "complexity": 7,
+  "scenario": "Online shop integration architecture with a legend",
+  "teaches": "d2-legend entries must be connections; tooltips; sync vs async as an edge class",
+  "expected_type": "plain shapes + containers",
+  "type_alternatives": [
+    "C4 container diagram",
+    "sequence_diagram"
+  ],
+  "vectors_offered": [
+    "legend",
+    "tooltips",
+    "links",
+    "classes",
+    "shape-semantics"
+  ],
+  "compile": true,
+  "shapes": 4,
+  "edges": 6,
+  "_edges_note": "4 real connections + 2 legend entries. Legend CONNECTIONS count in the inventory; the opacity-0 legend endpoint shapes do not. Verified against the binary.",
+  "must_contain_shapes": [
+    "shop",
+    "payments",
+    "courier",
+    "kafka"
+  ],
+  "must_contain_text": [
+    "Synchronous REST",
+    "Async via Kafka"
+  ],
+  "max_aspect": 6.0
+}

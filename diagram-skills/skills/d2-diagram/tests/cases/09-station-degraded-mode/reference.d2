@@ -1,0 +1,28 @@
+# L9 -- `scenarios` INHERITS the base board and overrides pieces of it, which is how
+# one source file states "the same system, in trouble" without a second diagram that
+# will drift from the first.
+# A multi-board diagram does NOT write the file you asked for: d2 writes a DIRECTORY
+# of boards with index.svg at its root.
+direction: right
+
+station: Station S02
+collector: Collector server
+forecast: Forecast service {shape: cloud}
+buffer: Local reading buffer {shape: cylinder}
+
+station -> collector: hourly reading
+collector -> forecast: upload
+collector -> buffer: copy on success
+
+scenarios: {
+  degraded: {
+    forecast.style: {
+      fill: "#FBECEC"
+      stroke: "#C0392B"
+      stroke-dash: 3
+    }
+    (collector -> forecast)[0].style.stroke: "#C0392B"
+    (collector -> forecast)[0]: unreachable
+    collector -> buffer: hold until it returns
+  }
+}

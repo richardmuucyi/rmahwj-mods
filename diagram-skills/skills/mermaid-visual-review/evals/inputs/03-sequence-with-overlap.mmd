@@ -1,0 +1,7 @@
+sequenceDiagram
+    participant Client
+    participant Server
+    Client->>Client: Validates input payload with schema check and retries on transient errors up to three times
+    Client->>Server: POST /api/request
+    Server->>Server: Authenticates and authorises caller against IAM policy database
+    Server->>Client: 200 OK

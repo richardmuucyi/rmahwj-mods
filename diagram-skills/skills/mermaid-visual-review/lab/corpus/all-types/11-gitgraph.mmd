@@ -1,0 +1,11 @@
+---
+title: Store migration branch
+---
+gitGraph
+  commit id: "MySQL"
+  branch bigtable
+  commit id: "dual writes"
+  commit id: "backfill"
+  checkout main
+  commit id: "hotfix"
+  merge bigtable id: "cut over"

@@ -1,7 +1,6 @@
 // The context guard's glue: the facts it needs from the board, the picker, the pilot log, the chip above the
 // prompt and the Context tab. What it decides is in guard.ts (tested alone).
-// Design: 90 System/Generated HTMLs/vault/context-guard-design.html and .../compact-picker-design.html
-// Plan: 90 System/Plans/2026-10-14-session-board-compact-picker.md
+// Design and plan notes are kept with the author, outside this repo.
 // THE RULE (0.19.0): the guard types, you press Enter. It never runs compact or clear. Every button here only fills
 // the prompt box (`io.fill`); the one compaction call anywhere is the engine's own, after you press Enter.
 // It holds no `$`: the engine refuses a hooks module whose `$` crosses an import. It is handed a GuardIo instead.

@@ -1,0 +1,43 @@
+---
+title: "Cloud session to main: how the work gets back to your PC"
+---
+%% SOURCE: a cloud session works on a fresh clone, no access to local files = code.claude.com/docs/en/scheduled-tasks.md, comparison table ("Access to local files | No (fresh clone)")
+%% SOURCE: the session pushes claude/ branches = code.claude.com/docs/en/claude-code-on-the-web.md
+%% SOURCE: "When a session completes, you can create a PR from claude.ai/code" = claude-code-on-the-web.md
+%% SOURCE: claude --cloud "task" starts a cloud session from the CLI = claude-code-on-the-web.md
+%% SOURCE: cloning and pull request creation require GitHub = claude-code-on-the-web.md, Limitations
+%% SOURCE: the repo's remote is GitHub (example-org/garden-journal) = git remote -v
+%% SOURCE: git pull --rebase replays your local commits on top of the remote's, then git push sends them = git-scm.com/docs/git-pull ("--rebase")
+%% SOURCE: a pull or a rebase stops on a conflict and leaves it for you to resolve = git-scm.com/docs/git-pull
+%% SOURCE: a plain git pull merges rather than rebases = git config pull.rebase=false
+%% SOURCE-EXEMPT: "Files changed" and "Merge pull request" = standard GitHub UI labels, not checked against a live page this session
+%% SOURCE-EXEMPT: "your-task" in the branch name is a placeholder
+%% NOT CLAIMED: the exact label of the PR button in claude.ai/code -- the docs say "create a PR", not the button text
+%% NOT CLAIMED: whether the session pushes as it goes or only at the end -- the docs say it pushes claude/ branches
+sequenceDiagram
+    participant you as You<br/>(your PC, your clone)
+    participant main as GitHub<br/>main
+    participant pr as GitHub<br/>pull request page
+    participant branch as GitHub<br/>claude/your-task
+    participant vm as Cloud session<br/>(Anthropic's machine)
+
+    Note over you,vm: Start the job
+    you->>main: 1 · commit + git push your work
+    Note over you: type:<br/>claude --cloud "your task"
+    you->>vm: 2 · this starts a cloud session
+    main->>vm: 3 · fresh clone of main<br/>(sees only what you pushed)
+    Note over vm: works:<br/>edits + commits
+    vm->>branch: 4 · push to its own branch<br/>(main is untouched)
+
+    alt Route A: merge on GitHub's website (recommended)
+        branch->>pr: A1 · you create a PR (in claude.ai/code)
+        you->>pr: A2 · review the Files changed tab
+        Note over pr: Not happy?<br/>Close the PR unmerged:<br/>main stays as it was.
+        pr->>main: A3 · Merge pull request
+        main->>you: A4 · git pull<br/>(or git pull --rebase + git push<br/>if you have local commits)
+    else Route B: ask Claude on your PC to merge it (no review page)
+        branch->>you: B1 · git fetch + git merge
+        you->>main: B2 · git push
+    end
+
+    Note over you,main: Conflict = both sides changed the same lines.<br/>git pull in A4 or git merge in B1 stops:<br/>ask Claude to resolve it.

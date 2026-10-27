@@ -1,0 +1,41 @@
+# Every d2 shape, style flag and arrowhead, for eval_drawio.py: each one maps to draw.io differently.
+direction: right
+r: rectangle
+sq: square {shape: square}
+pg: page {shape: page}
+pa: parallelogram {shape: parallelogram}
+doc: document {shape: document}
+cy: cylinder {shape: cylinder}
+qu: queue {shape: queue}
+pk: package {shape: package}
+st: step {shape: step}
+ca: callout {shape: callout}
+sd: stored data {shape: stored_data}
+di: diamond {shape: diamond}
+ov: oval {shape: oval}
+ci: circle {shape: circle}
+hx: hexagon {shape: hexagon}
+cl: cloud {shape: cloud}
+d3: three d {style.3d: true}
+mu: multiple {style.multiple: true}
+db: double {style.double-border: true}
+sh: shadow {style.shadow: true}
+md: |md
+  # Heading
+  Some **bold** text
+|
+r -> sq: triangle
+sq -> pg: arrow {target-arrowhead.shape: arrow}
+pg -> pa: diamond {target-arrowhead.shape: diamond}
+pa -> doc: filled diamond {target-arrowhead: {shape: diamond; style.filled: true}}
+doc -> cy: circle {target-arrowhead.shape: circle}
+cy -> qu: filled circle {target-arrowhead: {shape: circle; style.filled: true}}
+qu -> pk: box {target-arrowhead.shape: box}
+pk -> st: cf-one {target-arrowhead.shape: cf-one}
+st -> ca: cf-one-required {target-arrowhead.shape: cf-one-required}
+ca -> sd: cf-many {target-arrowhead.shape: cf-many}
+sd -> di: cf-many-required {target-arrowhead.shape: cf-many-required}
+di -> ov: cross {target-arrowhead.shape: cross}
+ov <-> ci: both
+ci -- hx: none
+hx -> cl: unfilled triangle {target-arrowhead: {shape: triangle; style.filled: false}}

@@ -1,0 +1,81 @@
+# The d2-diagram pipeline, drawn by following it.
+# Authored after `advise.py` proposed: flowchart, dagre, direction down, with
+# shape-semantics + classes + edge-labels as the vectors worth adding.
+direction: down
+
+classes: {
+  gate: {
+    style: {
+      fill: "#EEF3FA"
+      stroke: "#3B5C8F"
+    }
+  }
+  skipped: {
+    style: {
+      fill: "#FFF4E5"
+      stroke: "#B26B00"
+      stroke-width: 2
+    }
+  }
+  tool: {
+    shape: document
+    style: {
+      fill: "#F5F5F5"
+      stroke: "#666666"
+    }
+  }
+  reject: {
+    style: {
+      stroke: "#C0392B"
+      stroke-dash: 3
+    }
+  }
+}
+
+title: The d2-diagram pipeline {
+  shape: text
+  near: top-center
+  style: {
+    font-size: 26
+    bold: true
+  }
+}
+
+req: A request for a diagram {shape: oval}
+
+triage: "0 - Triage\nis this D2 at all?" {shape: diamond}
+elsewhere: "svg-smith / mermaid-visual-review\nimage generation / HTML pages"
+
+classify: "1 - Classify\npropose the type" {class: skipped}
+propose: "2 - Propose\nlayout, themes, vectors" {class: skipped}
+check: Does the user redirect? {shape: diamond}
+
+author: "3 - Author\nwrite the .d2" {class: gate}
+compile: "4 - Compile\nexit status + inventory" {class: gate}
+review: "5 - Review with eyes\nmeasure, then LOOK" {class: skipped}
+defect: Any CRITICAL? {shape: diamond}
+
+deliver: "6 - Deliver\n.d2 + render + the choices" {shape: oval}
+
+advise: scripts/advise.py {class: tool}
+render: scripts/render.py {class: tool}
+eye: scripts/visual_review.py {class: tool}
+
+req -> triage
+triage -> elsewhere: no {class: reject}
+triage -> classify: yes
+classify -> propose
+propose -> check
+check -> classify: yes, wrong genre {class: reject}
+check -> author: no
+author -> compile
+compile -> author: did not build {class: reject}
+compile -> review: built, drew what I meant
+review -> defect
+defect -> author: yes, fix it {class: reject}
+defect -> deliver: no
+
+advise -> classify: proposes
+advise -> propose: proposes
+render -> compile: gates
+eye -> review: measures geometry

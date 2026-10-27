@@ -1,0 +1,145 @@
+/* ─────────────────────────────────────────────────────────────
+ * Thariq house style — paste this into the <style> block of any
+ * new artefact built with this skill. Then reference the variables
+ * throughout. The whole "Unreasonable Effectiveness" demo suite uses
+ * exactly this palette + type stack and nothing else.
+ *
+ * Source: harvested from Thariq's gallery (May 2026), all 20 demos
+ * declare the same :root block verbatim.
+ * ───────────────────────────────────────────────────────────── */
+
+:root {
+  /* Kraft-paper palette. Don't add more colour families.
+   * If something needs to catch the eye, it gets --clay. */
+  --ivory:    #FAF9F5;   /* page background */
+  --white:    #FFFFFF;   /* card / panel background */
+  --slate:    #141413;   /* ink — headings, important text */
+  --clay:     #D97757;   /* the ONE saturated accent */
+  --clay-d:   #B85C3E;   /* clay darker — hover, pressed */
+  --oat:      #E3DACC;   /* soft fill, secondary chip */
+  --olive:    #788C5D;   /* "good" / "safe" / passing */
+
+  /* Five-stop neutral ramp.
+   *   gray-150 — very light surface, hover row
+   *   gray-300 — borders, dividers
+   *   gray-500 — meta text, muted captions
+   *   gray-700 — body text default
+   *   gray-800 — secondary heading, code text */
+  --gray-150: #F0EEE6;
+  --gray-300: #D1CFC5;
+  --gray-500: #87867F;
+  --gray-700: #3D3D3A;
+  --gray-800: #2A2A28;
+
+  /* Severity uses the existing colours. Don't introduce reds.
+   *   safe / good        → --olive
+   *   worth-a-look       → use --oat or a tan via #C8A772
+   *   attention / risky  → --clay */
+
+  /* Typography — system fonts only. No webfonts, no @import,
+   * no <link href="fonts.googleapis.com">. The skill ships these
+   * exactly so the artefact opens identically online and offline. */
+  --serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --sans:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono:  ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+}
+
+/* Sensible defaults the demos share. Override per artefact only
+ * when there's a reason — most of these you can keep verbatim. */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--sans);
+  background: var(--ivory);
+  color: var(--gray-700);
+  line-height: 1.55;
+  padding: 56px 32px 96px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page { max-width: 1360px; margin: 0 auto; }
+
+/* Eyebrow + H1 + optional prompt-box — the canonical masthead.
+ * .eyebrow is mono uppercase; h1 is serif with tight tracking;
+ * .prompt-box is the kraft card that quotes the user prompt. */
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gray-500);
+  margin-bottom: 14px;
+}
+
+h1 {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: clamp(28px, 4.2vw, 44px);
+  line-height: 1.08;
+  letter-spacing: -0.018em;
+  color: var(--slate);
+  margin-bottom: 18px;
+}
+
+.prompt-box {
+  background: var(--gray-150);
+  border: 1px solid var(--gray-300);
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin: 8px 0 28px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--gray-800);
+}
+.prompt-box::before {
+  content: "Prompt";
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--gray-500);
+  margin-bottom: 6px;
+}
+
+/* Mono chips — used for stat values, dates, file paths, ids. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--gray-300);
+  background: var(--white);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--gray-700);
+}
+.chip.clay  { background: var(--clay);  color: var(--white); border-color: transparent; }
+.chip.olive { background: var(--olive); color: var(--white); border-color: transparent; }
+.chip.oat   { background: var(--oat);   color: var(--slate); border-color: transparent; }
+
+/* Hand-rolled syntax highlighting. Five token classes max.
+ *   <span class="kw">if</span>  keywords
+ *   <span class="fn">render</span>  function/identifier
+ *   <span class="str">"foo"</span>  strings
+ *   <span class="dim">// comment</span>  dim
+ *   default                       code text */
+pre {
+  background: var(--gray-150);
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--gray-800);
+}
+.kw  { color: var(--clay-d);  font-weight: 600; }
+.fn  { color: #6B5C9E; }             /* one of the few off-palette accents */
+.str { color: var(--olive); }
+.dim { color: var(--gray-500); }

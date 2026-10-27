@@ -1,0 +1,71 @@
+# The funnel, in whole numbers. A thousand requests, and where each one stops.
+#
+# Concrete counts beat percentages for a general reader: "5 out of 1000" lands
+# immediately, "0.5% of traffic" does not.
+direction: down
+
+classes: {
+  step: {
+    width: 340
+    height: 90
+    style: {
+      fill: "#FFFFFF"
+      stroke: "#C7D2E5"
+      border-radius: 8
+      font-size: 22
+    }
+  }
+  done: {
+    width: 340
+    height: 90
+    style: {
+      fill: "#E4F1E8"
+      stroke: "#1E6F45"
+      stroke-width: 2
+      border-radius: 8
+      bold: true
+      font-size: 22
+    }
+  }
+  few: {
+    width: 340
+    height: 90
+    style: {
+      fill: "#FBEAE7"
+      stroke: "#C0392B"
+      stroke-width: 2
+      border-radius: 8
+      bold: true
+      font-size: 22
+    }
+  }
+}
+
+title: Why it stays fast {
+  shape: text
+  near: top-center
+  style: {
+    font-size: 30
+    bold: true
+  }
+}
+
+lesson: "Nothing here is clever. It is fast because almost nothing\nhas to travel the whole way." {
+  shape: text
+  near: bottom-center
+  style: {
+    font-size: 18
+    italic: true
+  }
+}
+
+a: 1000 people ask {class: step}
+b: 900 get the nearby copy {class: done}
+c: 100 carry on {class: step}
+d: 95 are already remembered {class: done}
+e: 5 reach the storage {class: few}
+
+a -> b
+b -> c: the rest
+c -> d
+d -> e: the rest

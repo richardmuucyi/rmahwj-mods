@@ -1,0 +1,89 @@
+# Animated connections: `style.animated: true`.
+#
+# MECHANISM (verified): d2 emits a CSS `@keyframes dashdraw` animating stroke-dashoffset.
+# Not SMIL, not script. That matters, because CSS animation inside an SVG runs even when
+# the SVG is loaded through an <img> tag -- verified by screenshotting the same page twice
+# 900ms apart and diffing the bytes, for BOTH `<img src=...>` and inline `<svg>`.
+#
+# So it survives:  an <img> embed in a Markdown note or page, inline SVG on a web page.
+# It does NOT survive: a rasterised PNG (one frame), or PDF (inert).
+#
+# THE RESTRAINT RULE: motion is the loudest thing on a diagram, so it can only mark ONE
+# thing. Animate the path you want followed. Practitioners who use D2 daily go further and
+# prefer colour over motion for callouts -- "turn it red" -- because animation fights the
+# edge colours already carrying meaning.
+direction: right
+
+classes: {
+  n: {
+    style: {
+      fill: "#FFFFFF"
+      stroke: "#C7D2E5"
+    }
+  }
+  hot: {
+    style: {
+      stroke: "#1B48C4"
+      stroke-width: 3
+      animated: true
+    }
+  }
+  quiet: {
+    style: {
+      stroke: "#8592AC"
+    }
+  }
+  noisy: {
+    style: {
+      stroke: "#C0392B"
+      stroke-width: 2
+      animated: true
+    }
+  }
+}
+
+title: Animate one path, not all of them {
+  shape: text
+  near: top-center
+  style: {
+    font-size: 26
+    bold: true
+  }
+}
+
+good: One animated path {
+  class: n
+  g1: Client {class: n}
+  g2: API {class: n}
+  g3: Cache {shape: cylinder; class: n}
+  g4: Store {shape: cylinder; class: n}
+  g5: Metrics {class: n}
+  g1 -> g2: request {class: hot}
+  g2 -> g3: read {class: hot}
+  g3 -> g2 {class: quiet}
+  g2 -> g4: miss only {class: quiet}
+  g2 -> g5 {class: quiet}
+}
+
+bad: Everything animated {
+  class: n
+  b1: Client {class: n}
+  b2: API {class: n}
+  b3: Cache {shape: cylinder; class: n}
+  b4: Store {shape: cylinder; class: n}
+  b5: Metrics {class: n}
+  b1 -> b2 {class: noisy}
+  b2 -> b3 {class: noisy}
+  b3 -> b2 {class: noisy}
+  b2 -> b4 {class: noisy}
+  b2 -> b5 {class: noisy}
+}
+
+note: "Motion is the loudest mark on a diagram.\nUse it once, or it says nothing." {
+  shape: text
+  near: bottom-center
+  style: {
+    font-size: 17
+    italic: true
+  }
+}

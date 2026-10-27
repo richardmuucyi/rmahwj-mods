@@ -1,0 +1,79 @@
+direction: right
+
+title: d2-diagram — render pipeline {
+  shape: text
+  near: top-center
+  style: {
+    font-size: 28
+    bold: true
+  }
+}
+
+classes: {
+  step: {
+    style: {
+      fill: "#E8F4F8"
+      stroke: "#2E7D8F"
+      stroke-width: 2
+      border-radius: 6
+    }
+  }
+  gate: {
+    shape: diamond
+    style: {
+      fill: "#FFF4E0"
+      stroke: "#C77700"
+      stroke-width: 2
+    }
+  }
+  artefact: {
+    shape: document
+    style: {
+      fill: "#F2F7ED"
+      stroke: "#5A8A3C"
+    }
+  }
+}
+
+request: User asks for\na diagram {class: step}
+
+authoring: Authoring {
+  style.stroke-dash: 3
+  pick: Pick diagram type {class: step}
+  write: Write .d2 source {class: step}
+  pick -> write
+}
+
+render: Render {
+  style.stroke-dash: 3
+  compile: d2 compile {class: step}
+  gate: exit 0? {class: gate}
+  ascii: ASCII preview {class: step}
+
+  compile -> gate
+  gate -> ascii: yes
+}
+
+delivery: Delivered {
+  style.stroke-dash: 3
+  src: name.d2 {class: artefact}
+  svg: name.svg {class: artefact}
+}
+
+request -> authoring.pick
+authoring.write -> render.compile
+render.gate -> authoring.write: no — read file:line:col {
+  style.stroke: "#C0392B"
+  style.stroke-dash: 4
+}
+render.ascii -> delivery.src: source
+render.ascii -> delivery.svg: render
+
+note: |md
+  `d2 validate` is **not** the gate —
+  it exits 0 on semantically broken input.
+  The compile is the gate.
+| {
+  near: bottom-center
+  style.font-size: 14
+}

@@ -1,0 +1,13 @@
+# Single source of truth for both render toolchains.
+#
+# MERMAID_TARGET   — what we author and render against. Bump DELIBERATELY;
+#                    record the bump and its reason in CHANGELOG.md.
+# MERMAID_BASELINE — an older mermaid that compat_check.py checks against. Pinned
+#                    to what Obsidian bundles; for Obsidian users, re-check
+#                    obsidian.md/changelog on each update (the pin expires when
+#                    Obsidian bumps). Repin it to target another app.
+# MERMAID_CLI      — the renderer driving both. Mermaid version is forced by the
+#                    `overrides` block in each package.json, not by this.
+MERMAID_TARGET=11.16.1
+MERMAID_BASELINE=11.13.0
+MERMAID_CLI=11.16.0

@@ -1,0 +1,121 @@
+# Where the time goes, and how much traffic ever gets that far.
+#
+# GRID TRAP: `grid-rows` is declared FIRST. Whichever is declared first decides the fill
+# order, and `grid-columns` alone fills COLUMN-wise -- which would scatter this header row
+# down the first column while still looking deliberate.
+#
+# Figures are order-of-magnitude design targets for capacity planning, not measurements.
+
+classes: {
+  h: {
+    style: {
+      fill: "#0D1B3E"
+      font-color: "#FFFFFF"
+      bold: true
+      stroke: "#0D1B3E"
+    }
+  }
+  hop: {
+    style: {
+      fill: "#F5F8FD"
+      stroke: "#C7D2E5"
+      bold: true
+    }
+  }
+  cell: {
+    style: {
+      fill: "#FFFFFF"
+      stroke: "#C7D2E5"
+    }
+  }
+  most: {
+    style: {
+      fill: "#E4F1E8"
+      stroke: "#1E6F45"
+      bold: true
+    }
+  }
+  few: {
+    style: {
+      fill: "#FDF1DF"
+      stroke: "#B26B00"
+      bold: true
+    }
+  }
+  rare: {
+    style: {
+      fill: "#FBEAE7"
+      stroke: "#C0392B"
+      bold: true
+    }
+  }
+}
+
+title: "The latency budget -- and the funnel that protects it" {
+  shape: text
+  near: top-center
+  style: {
+    font-size: 26
+    bold: true
+  }
+}
+
+grid: "" {
+  grid-rows: 9
+  grid-columns: 4
+  grid-gap: 0
+
+  h1: Hop {class: h}
+  h2: Typical {class: h}
+  h3: Share that reaches it {class: h}
+  h4: What keeps it fast {class: h}
+
+  a1: DNS resolve {class: hop}
+  a2: "~10 ms, once" {class: cell}
+  a3: "100%" {class: most}
+  a4: Long TTL, resolver caches it {class: cell}
+
+  b1: CDN edge {class: hop}
+  b2: "~20 ms" {class: cell}
+  b3: "100% arrive, ~90% END HERE" {class: most}
+  b4: Static and cacheable GETs never go further {class: cell}
+
+  c1: Load balancer + TLS {class: hop}
+  c2: "~5 ms" {class: cell}
+  c3: "~10%" {class: few}
+  c4: Session resumption, keep-alive, warm pools {class: cell}
+
+  d1: API gateway {class: hop}
+  d2: "~3 ms" {class: cell}
+  d3: "~10%" {class: few}
+  d4: Token verified locally, no database call {class: cell}
+
+  e1: Microservice {class: hop}
+  e2: "~5 ms" {class: cell}
+  e3: "~10%" {class: few}
+  e4: Stateless, autoscaled, no blocking I/O {class: cell}
+
+  f1: Redis cache {class: hop}
+  f2: "under 1 ms" {class: cell}
+  f3: "~10% ask, ~95% hit" {class: most}
+  f4: Cache-aside, pipelined, hot keys pinned {class: cell}
+
+  g1: Read replica {class: hop}
+  g2: "~5 ms" {class: cell}
+  g3: "~2%" {class: rare}
+  g4: Indexed, connection-pooled, read-only {class: cell}
+
+  i1: Shard primary {class: hop}
+  i2: "~10 ms" {class: cell}
+  i3: "writes only" {class: rare}
+  i4: Sharded so no single primary takes it all {class: cell}
+}
+
+note: "The budget only holds because of the funnel.\nIf the CDN and Redis hit rates fall, every tier below them\nsees several times the traffic it was sized for --\nwhich is how a cache problem presents as a database outage." {
+  shape: text
+  near: bottom-center
+  style: {
+    font-size: 16
+    italic: true
+  }
+}

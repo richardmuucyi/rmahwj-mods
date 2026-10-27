@@ -1,0 +1,68 @@
+# The same diagram, wrong and right. Side by side on purpose: the comparison IS the
+# lesson, and two boards would hide it behind a click.
+direction: right
+
+classes: {
+  bad: {
+    style: {
+      fill: "#FBEAE7"
+      stroke: "#C0392B"
+    }
+  }
+  good: {
+    style: {
+      fill: "#E4F1E8"
+      stroke: "#1E6F45"
+    }
+  }
+  plain: {
+    style: {
+      fill: "#FFFFFF"
+      stroke: "#C7D2E5"
+    }
+  }
+}
+
+title: Same system, twice {
+  shape: text
+  near: top-center
+  style: {
+    font-size: 28
+    bold: true
+  }
+}
+
+before: Before {
+  class: bad
+  b1: "The web front end that users load in their browser" {class: plain}
+  b2: "The API service which handles all business logic" {class: plain}
+  b3: "PostgreSQL database, primary instance, holds orders" {class: plain}
+  b1 -> b2
+  b2 -> b3
+}
+
+after: After {
+  class: good
+  a1: Web app {class: plain}
+  a2: API {class: plain}
+  a3: Orders {
+    shape: cylinder
+    class: plain
+  }
+  a1 -> a2: calls
+  a2 -> a3: reads and writes
+}
+
+fix1: Names, not sentences {shape: callout; class: good}
+fix2: Shapes replace words {shape: callout; class: good}
+fix3: Arrows carry verbs {shape: callout; class: good}
+
+# Each callout points at the specific thing it is talking about, not at the
+# container. Attaching them to the group left a large dead area and made the
+# reader guess which change each note referred to.
+# Full paths: `a1` alone would not resolve to the node inside `after` -- it would
+# silently CREATE a new top-level shape. And a connection cannot be an endpoint,
+# so the verb note points at the node the labelled edge leaves.
+after.a1 -> fix1
+after.a2 -> fix3
+after.a3 -> fix2

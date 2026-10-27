@@ -1,0 +1,29 @@
+{
+  "complexity": 1,
+  "scenario": "Bakery order routing decision",
+  "teaches": "diamond/oval/cylinder shape semantics, branch labels",
+  "expected_type": "flowchart (plain shapes + diamond)",
+  "type_alternatives": [
+    "state machine"
+  ],
+  "vectors_offered": [
+    "shape-semantics",
+    "edge-labels",
+    "direction"
+  ],
+  "compile": true,
+  "shapes": 6,
+  "edges": 5,
+  "must_contain_shapes": [
+    "start",
+    "makeable",
+    "today",
+    "decline",
+    "bake",
+    "book"
+  ],
+  "must_contain_text": [
+    "Can we make it?"
+  ],
+  "max_aspect": 6.0
+}

@@ -1,0 +1,10 @@
+# VISUAL CONTROL -- must raise NOTHING.
+# Guards against the reviewer becoming trigger-happy. Edge labels sit outside every
+# shape by design, and an earlier version of the probe wrongly flagged them by
+# treating stroke-only connection paths as shape outlines.
+direction: right
+a: Service A
+b: Service B
+c: Store {shape: cylinder}
+a -> b: calls
+b -> c: writes rows

@@ -1,0 +1,12 @@
+# NEGATIVE CONTROL -- this compiles cleanly and draws the WRONG graph.
+# Two separate bugs, both silent, both exit 0:
+#   1. `Backend -> Frontend` connects LABELS, not keys, so it invents two new shapes.
+#   2. the multi-line label is written across real lines, so line two becomes a shape.
+# The harness must catch both. If it stops catching them, this case turns red.
+be: Backend
+fe: Frontend
+
+Backend -> Frontend: invented pair
+
+note: Customer shows the ticket at the door
+      and the scanner checks the barcode

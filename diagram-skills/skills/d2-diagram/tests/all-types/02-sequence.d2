@@ -1,0 +1,14 @@
+vars: { d2-config: { theme-id: 0; dark-theme-id: 200; pad: 40 } }
+title: "A click on a short link" { shape: text; near: top-center; style.font-size: 20 }
+seq: "" {
+  shape: sequence_diagram
+  user: User
+  decode: Decode service
+  store: Link store
+  queue: NSQ queue
+  user -> decode: opens bit.ly/xyz
+  decode -> store: look up destination
+  store -> decode: long URL
+  decode -> user: HTTP redirect
+  decode -> queue: publish click { style.stroke-dash: 3 }
+}

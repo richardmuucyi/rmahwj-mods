@@ -1,0 +1,14 @@
+{
+  "complexity": 3,
+  "scenario": "Inkwell signup with failure paths",
+  "teaches": "classes for palette, class on a connection, failure path as styled edge",
+  "expected_type": "flowchart (plain shapes + diamond)",
+  "type_alternatives": ["sequence_diagram"],
+  "vectors_offered": ["classes", "shape-semantics", "edge-labels", "failure-path"],
+  "compile": true,
+  "shapes": 8,
+  "edges": 8,
+  "must_contain_shapes": ["dev", "api", "db", "verify", "bounce"],
+  "must_contain_text": ["POST /signup", "duplicate email"],
+  "max_aspect": 6.0
+}

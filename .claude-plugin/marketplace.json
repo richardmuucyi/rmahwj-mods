@@ -10,6 +10,14 @@
       "source": "./assumptions"
     },
     {
+      "name": "diagram-skills",
+      "source": "./diagram-skills"
+    },
+    {
+      "name": "html-artefact",
+      "source": "./html-artefact"
+    },
+    {
       "name": "image-open",
       "source": "./image-open"
     },

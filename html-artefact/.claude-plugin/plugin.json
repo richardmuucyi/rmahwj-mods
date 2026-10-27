@@ -1,0 +1,6 @@
+{
+  "name": "html-artefact",
+  "version": "0.1.0",
+  "description": "A skill you call by name for single-file HTML pages: comparisons, plans, reviews, explainers, editors and reports, built from 24 recipes and 31 reference pages, then checked by an audit script.",
+  "author": { "name": "Richard" }
+}

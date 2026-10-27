@@ -1,0 +1,12 @@
+# VISUAL CONTROL -- must raise `markdown-clipped`.
+# Verified by eye: the second line of the heading is sliced in half.
+# Note that LENGTH is not the discriminator -- a 70-character heading in a wide box
+# does NOT clip, because d2 grows the box to fit. This 29-character one does. What
+# matters is whether the heading ends up wrapping inside the box d2 chose.
+title: |md
+  # d2-diagram — render pipeline
+|
+title.shape: rectangle
+
+src: source.d2
+src -> title

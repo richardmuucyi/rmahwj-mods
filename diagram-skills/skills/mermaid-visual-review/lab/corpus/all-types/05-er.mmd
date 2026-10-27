@@ -1,0 +1,16 @@
+---
+title: Link data
+---
+erDiagram
+  USER ||--o{ LINK : creates
+  LINK ||--o{ CLICK : receives
+  LINK {
+    string code PK
+    string long_url
+    datetime created_at
+  }
+  CLICK {
+    datetime at
+    string referrer
+    string code FK
+  }

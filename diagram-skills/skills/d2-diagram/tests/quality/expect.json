@@ -1,0 +1,11 @@
+{
+  "legend-honest":        "PASS",
+  "legend-claims-unused": "FAIL",
+  "legend-missing-row":   "FAIL",
+  "no-legend":            {"9": "SKIP", "11": "SKIP"},
+  "hierarchy-inverted":         {"11": "WARN"},
+  "hierarchy-zoned":            {"11": "PASS"},
+  "hierarchy-wrapper-key":      {"11": "WARN"},
+  "hierarchy-wrapper-labelled": {"11": "PASS"},
+  "hierarchy-grid-blank":       {"11": "PASS"}
+}

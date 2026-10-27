@@ -1,0 +1,7 @@
+# NEGATIVE CONTROL -- must NOT compile.
+# `d2 validate` returns exit 0 and prints "Success!" on this file. The compile is the
+# only real gate, and this case exists to keep proving that difference is real.
+a: A shape that does not exist
+a.shape: bogus_shape
+b: Fine
+a -> b

@@ -1,0 +1,16 @@
+vars: { d2-config: { theme-id: 0; dark-theme-id: 200; pad: 40 } }
+direction: right
+title: "Normal click" { shape: text; near: top-center; style.font-size: 20 }
+user: User
+decode: Decode service
+queue: NSQ queue
+user -> decode: opens link
+decode -> queue: publish click
+scenarios: {
+  queue_down: {
+    title.label: "Queue down: redirect still works"
+    queue.style.stroke-dash: 3
+    (decode -> queue)[0].style.stroke: "#e8590c"
+    (decode -> queue)[0].label: "publish fails, retried later"
+  }
+}

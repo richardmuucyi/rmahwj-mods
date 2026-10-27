@@ -1,0 +1,14 @@
+---
+title: A click on a short link
+---
+sequenceDiagram
+  actor U as User
+  participant D as Decode service
+  participant S as Link store
+  participant Q as NSQ queue
+  U->>D: opens bit.ly/xyz
+  D->>S: look up destination
+  S-->>D: long URL
+  D-->>U: HTTP redirect
+  D-)Q: publish click
+  Note over D,Q: async, the user does not wait

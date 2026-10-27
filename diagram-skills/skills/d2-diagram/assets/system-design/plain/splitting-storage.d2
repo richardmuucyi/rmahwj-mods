@@ -1,0 +1,140 @@
+# Sharding, in plain words. Same rule: names, not sentences.
+direction: down
+
+classes: {
+  main: {
+    shape: cylinder
+    style: {
+      fill: "#E8F1FB"
+      stroke: "#1B48C4"
+      stroke-width: 2
+    }
+  }
+  copy: {
+    shape: cylinder
+    style: {
+      fill: "#F7F9FD"
+      stroke: "#8592AC"
+    }
+  }
+  cupboard: {
+    style: {
+      fill: "#F5F8FD"
+      stroke: "#7D93B8"
+    }
+  }
+  change: {
+    style: {
+      stroke: "#1B48C4"
+      stroke-width: 3
+    }
+  }
+  look: {
+    style: {
+      stroke: "#1E6F45"
+      stroke-width: 2
+      stroke-dash: 2
+    }
+  }
+  sync: {
+    style: {
+      stroke: "#8592AC"
+      stroke-dash: 3
+    }
+  }
+  slow: {
+    style: {
+      stroke: "#C0392B"
+      stroke-dash: 4
+    }
+  }
+}
+
+vars: {
+  d2-legend: {
+    a.style.opacity: 0
+    b.style.opacity: 0
+    a -> b: Changing something goes to the main copy {
+      style: {
+        stroke: "#1B48C4"
+        stroke-width: 3
+      }
+    }
+    a -> b: Just looking goes to the reading copy {
+      style: {
+        stroke: "#1E6F45"
+        stroke-width: 2
+        stroke-dash: 2
+      }
+    }
+    a -> b: The copies are kept in step {
+      style: {
+        stroke: "#8592AC"
+        stroke-dash: 3
+      }
+    }
+    a -> b: Has to ask everyone -- slow {
+      style: {
+        stroke: "#C0392B"
+        stroke-dash: 4
+      }
+    }
+  }
+}
+
+title: One big cupboard becomes three {
+  shape: text
+  near: top-center
+  style: {
+    font-size: 30
+    bold: true
+  }
+}
+
+why: "One cupboard can only be opened so often.\nThree cupboards can be opened three times as often." {
+  shape: text
+  near: bottom-center
+  style: {
+    font-size: 17
+    italic: true
+  }
+}
+
+ask: A request {shape: oval}
+
+sorter: Sorting desk {shape: diamond}
+
+c1: Names A to H {
+  class: cupboard
+  m1: Main {class: main}
+  r1: Reading copy {class: copy}
+  m1 -> r1 {class: sync}
+}
+
+c2: Names I to P {
+  class: cupboard
+  m2: Main {class: main}
+  r2: Reading copy {class: copy}
+  m2 -> r2 {class: sync}
+}
+
+c3: Names Q to Z {
+  class: cupboard
+  m3: Main {class: main}
+  r3: Reading copy {class: copy}
+  m3 -> r3 {class: sync}
+}
+
+everyone: Count everyone {shape: oval}
+
+ask -> sorter: which cupboard?
+sorter -> c1.m1 {class: change}
+sorter -> c2.m2 {class: change}
+sorter -> c3.m3 {class: change}
+sorter -> c1.r1 {class: look}
+sorter -> c2.r2 {class: look}
+sorter -> c3.r3 {class: look}
+
+everyone -> c1.r1 {class: slow}
+everyone -> c2.r2 {class: slow}
+everyone -> c3.r3 {class: slow}

@@ -1,0 +1,92 @@
+%% source: fictional example (music streaming app, a playlist edited offline and synced later)
+sequenceDiagram
+    title Tunewell: Playlist Edited on the Train, Synced at Home
+    autonumber
+    actor L as Listener
+    participant PH as Phone App
+    participant SY as Sync Service
+    participant LIB as Library Store
+    participant LP as Laptop App
+
+    Note over PH: Phone is offline (tunnel)
+
+    rect rgb(232, 244, 252)
+        note right of L: Part 1: Edits Without a Connection
+        L->>PH: Drags "Late Night Drive" songs into a new order
+        L->>PH: Removes two songs, adds one from downloads
+        PH->>PH: Write each edit to the local change log
+
+        Note right of PH: Edits carry the phone's clock time
+
+        par Things the phone does while offline
+            rect rgb(246, 236, 250)
+                Note right of PH: Artwork
+                opt Cover art missing for the added song
+                    PH->>PH: Use the album colour as a placeholder
+                    Note over PH: Real art fetched later
+                end
+            end
+            rect rgb(226, 240, 248)
+                Note right of PH: Play counts
+                PH->>PH: Count plays of the downloaded songs
+                PH->>PH: Keep counts in a small outbox
+
+                alt Outbox nearly full
+                    Note over PH: Merge counts per song
+                    PH->>PH: Drop the per-play timestamps
+                else Plenty of room
+                    Note over PH: Keep every play
+                end
+            end
+        end
+    end
+
+    rect rgb(252, 246, 226)
+        Note over PH: Part 2: Back on Home Wi-Fi
+
+        PH->>SY: Hello, I have 3 edits and 41 plays
+        SY->>LIB: Fetch "Late Night Drive", version and edit history
+        LIB-->>SY: Version 12, last edited on the laptop 20 min ago
+
+        opt The laptop edited the same playlist
+            Note over SY: Two edit histories to combine
+            SY->>LP: Is the laptop holding unsent edits?
+            LP-->>SY: One more: renamed the playlist
+
+            opt Both sides moved the same song
+                SY->>SY: Keep the later move by clock time
+                Note right of SY: The earlier move is kept<br/>in history, not thrown away
+            end
+        end
+
+        loop Each edit in the phone's change log
+            SY->>SY: Check the song still exists in the catalogue
+
+            par Side jobs per edit
+                SY->>LIB: Look up song length for the total time
+                SY->>LIB: Look up whether the song is explicit
+            end
+
+            alt Song was pulled from the catalogue
+                SY->>PH: Grey the song out, keep its slot
+            else Song is fine
+                SY->>LIB: Apply the edit
+                LIB-->>SY: New version saved
+            end
+        end
+
+        SY->>LIB: Add the 41 plays to listening history
+        LIB-->>SY: History updated
+    end
+
+    rect rgb(232, 248, 236)
+        Note over SY: Part 3: Everyone Sees the Same Playlist
+        SY->>PH: Here is version 14
+        PH-->>SY: Got it, change log cleared
+        SY->>LP: Here is version 14
+        LP-->>SY: Got it
+
+        LP->>LP: Redraw the playlist page
+        L->>LP: Presses play on the laptop
+        Note over LP: Starts at the song the phone stopped on
+    end

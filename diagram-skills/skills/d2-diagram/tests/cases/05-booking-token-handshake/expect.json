@@ -1,0 +1,33 @@
+{
+  "complexity": 5,
+  "scenario": "Booking app token handshake against a payments API",
+  "teaches": "sequence_diagram flat scope, declaration order as layout, groups, notes",
+  "expected_type": "sequence_diagram",
+  "type_alternatives": [
+    "flowchart"
+  ],
+  "vectors_offered": [
+    "groups",
+    "notes",
+    "spans",
+    "edge-labels"
+  ],
+  "compile": true,
+  "shapes": 6,
+  "edges": 10,
+  "_edges_note": "7 messages + 3 lifelines. In a sequence diagram each actor's lifeline renders as a dangling connection -- '(client -- )[0]' -- so edges == messages + actors, NOT messages. Verified against the binary.",
+  "must_contain_shapes": [
+    "client",
+    "auth",
+    "pay",
+    "happy path",
+    "token expiry"
+  ],
+  "allow_prose_shapes": [
+    "auth.Secret rotates every 90 days"
+  ],
+  "must_contain_text": [
+    "401 Unauthorized"
+  ],
+  "max_aspect": 6.0
+}

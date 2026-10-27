@@ -1,0 +1,29 @@
+# L8 -- a grid bypasses the layout engine entirely.
+# THE TRAP: `grid-columns` on its own fills COLUMN-wise, which scatters a header row
+# down the first column and still looks deliberate. For a table written row by row,
+# declare `grid-rows` FIRST -- whichever is declared first decides the fill order.
+matrix: Ticket booking test status {
+  grid-rows: 4
+  grid-columns: 4
+  grid-gap: 0
+
+  h1: Scenario
+  h2: Staging
+  h3: Production
+  h4: Owner
+
+  r1c1: Seat selection
+  r1c2: pass
+  r1c3: pass
+  r1c4: Web team
+
+  r2c1: Payment declined
+  r2c2: pass
+  r2c3: blocked
+  r2c4: Payments
+
+  r3c1: Sold-out event
+  r3c2: not run
+  r3c3: not run
+  r3c4: QA
+}

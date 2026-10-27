@@ -1,0 +1,10 @@
+---
+title: Click path services
+---
+architecture-beta
+  group bitly(cloud)[Bitly]
+  service api(server)[API layer] in bitly
+  service store(database)[Link store] in bitly
+  service queue(disk)[NSQ queue] in bitly
+  api:R --> L:store
+  api:L --> R:queue

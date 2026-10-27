@@ -72,7 +72,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await c.band.unmount()
     c = await card()
     expect(c.text).toContain('FIXING')
-    await c.band.input({ key: 'as-card-fix-input', text: 'Put it in 90 System/Generated HTMLs' })
+    await c.band.input({ key: 'as-card-fix-input', text: 'Put it in docs/generated' })
     expect(sent[0]).toContain('Correction to assumption A2')
     await c.band.unmount()
 
@@ -96,7 +96,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await pane.find({ type: 'Text', text: /A1 +Use British/ })).toBeUndefined()
     await pane.press({ key: 'as-toggle-reviewed' })
     expect(await pane.find({ type: 'Text', text: /A1 +Use British/ })).toBeDefined()
-    expect(await pane.find({ type: 'Text', text: /→ Put it in 90 System/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /→ Put it in docs\/generated/ })).toBeDefined()
     await pane.press({ key: 'as-clear' })
     expect(JSON.stringify(await log('Keep the old file'))).toContain('A4')
   })

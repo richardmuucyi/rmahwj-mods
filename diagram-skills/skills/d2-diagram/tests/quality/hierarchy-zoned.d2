@@ -1,0 +1,15 @@
+# MUST PASS (criterion 11): the same diagram with the zone class from aesthetics.md, so
+# the container label drops to 13px under its 16px nodes. Proves the fix the warning
+# names actually clears it.
+classes: {
+  zone: { style: { font-size: 13; font-color: "#4b5563" } }
+}
+direction: right
+user: User
+svc: Link service {
+  class: zone
+  api: API layer
+  store: Link store
+  api -> store: saves
+}
+user -> svc.api: long URL

@@ -1,0 +1,9 @@
+# VISUAL CONTROL -- must raise `icon-over-label`.
+# The node is sized to its two-line label, leaving no room for the icon, so the icon
+# is drawn straight over line two. Verified by eye. `icon.near: top-left` makes it
+# WORSE; the fix is explicit width/height.
+lb: "Load balancer\nstateless web tier behind it" {
+  icon: ./github-mark.svg
+}
+api: API
+lb -> api

@@ -1,0 +1,10 @@
+# MUST PASS (criterion 11): the same wrapper with a real label. A sequence_diagram or
+# grid wrapper's label works as the diagram's title, so it must NOT be told to shrink
+# to a 13px zone label. Guards against the size rule firing on every titled wrapper.
+seq: "A click on a short link" {
+  shape: sequence_diagram
+  user: User
+  svc: Service
+  user -> svc: request
+  svc -> user: reply
+}

@@ -1,0 +1,10 @@
+# MUST WARN (criterion 11): d2 draws a container label at 28px by default, nearly twice
+# the 16px nodes inside it, so the grouping box shouts over the components (aesthetics.md).
+direction: right
+user: User
+svc: Link service {
+  api: API layer
+  store: Link store
+  api -> store: saves
+}
+user -> svc.api: long URL

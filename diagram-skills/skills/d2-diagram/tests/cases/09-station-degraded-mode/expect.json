@@ -1,0 +1,28 @@
+{
+  "complexity": 9,
+  "scenario": "Station reading upload, normal vs forecast service unreachable",
+  "teaches": "scenarios inherit the base board; multi-board writes a DIRECTORY",
+  "expected_type": "plain shapes + scenarios",
+  "type_alternatives": [
+    "two separate diagrams"
+  ],
+  "vectors_offered": [
+    "scenarios",
+    "failure-path",
+    "classes"
+  ],
+  "compile": true,
+  "multiboard": true,
+  "boards": 2,
+  "_boards_note": "index.svg + degraded.svg, FLAT at the root of the output directory. One board type only, so d2 does not nest under scenarios/.",
+  "shapes": 4,
+  "edges": 3,
+  "_inventory_note": "Counts describe the ROOT board (index.svg) only; each scenario board is inventoried separately.",
+  "must_contain_shapes": [
+    "station",
+    "collector",
+    "forecast",
+    "buffer"
+  ],
+  "max_aspect": 6.0
+}

@@ -1,0 +1,165 @@
+# Database sharding -- how one logical database becomes N that can each be written to.
+#
+# The distinction the diagram is built around: SHARDING buys write throughput,
+# REPLICATION buys read throughput. They solve different problems and are usually
+# needed together. Most "we need to shard" conversations are actually read problems
+# that a cache and a read replica would fix more cheaply.
+direction: down
+
+classes: {
+  box: {
+    # No explicit width/height on purpose. Fixed sizing is for ICON-bearing nodes, where
+    # the icon needs room the label would otherwise consume. On a plain labelled box a
+    # too-small fixed width pushes the label OUTSIDE the shape -- which is what happened
+    # here when this class was first copied from the icon pattern. Let d2 size to the label.
+    style: {
+      fill: "#FFFFFF"
+      stroke: "#C7D2E5"
+      border-radius: 8
+    }
+  }
+  shard: {
+    style: {
+      fill: "#F5F8FD"
+      stroke: "#7D93B8"
+    }
+  }
+  primary: {
+    shape: cylinder
+    width: 175
+    height: 130
+    style: {
+      fill: "#E8F1FB"
+      stroke: "#1B48C4"
+      stroke-width: 2
+    }
+  }
+  replica: {
+    shape: cylinder
+    width: 175
+    height: 115
+    style: {
+      fill: "#F7F9FD"
+      stroke: "#8592AC"
+    }
+  }
+  write: {
+    style: {
+      stroke: "#1B48C4"
+      stroke-width: 3
+    }
+  }
+  read: {
+    style: {
+      stroke: "#1E6F45"
+      stroke-width: 2
+      stroke-dash: 2
+    }
+  }
+  repl: {
+    style: {
+      stroke: "#8592AC"
+      stroke-dash: 3
+    }
+  }
+  danger: {
+    style: {
+      stroke: "#C0392B"
+      stroke-dash: 4
+    }
+  }
+}
+
+vars: {
+  d2-legend: {
+    a.style.opacity: 0
+    b.style.opacity: 0
+    a -> b: Write -- always the shard primary {
+      style: {
+        stroke: "#1B48C4"
+        stroke-width: 3
+      }
+    }
+    a -> b: Read -- any replica of the right shard {
+      style: {
+        stroke: "#1E6F45"
+        stroke-width: 2
+        stroke-dash: 2
+      }
+    }
+    a -> b: Replication, asynchronous {
+      style: {
+        stroke: "#8592AC"
+        stroke-dash: 3
+      }
+    }
+    a -> b: Scatter-gather -- avoid on the hot path {
+      style: {
+        stroke: "#C0392B"
+        stroke-dash: 4
+      }
+    }
+  }
+}
+
+title: "Sharding for writes, replicas for reads" {
+  shape: text
+  near: top-center
+  style: {
+    font-size: 26
+    bold: true
+  }
+}
+
+svc: "Service\ncarries tenant_id on every query" {class: box}
+
+router: "Shard router\nbucket = hash(tenant_id) % 1024\nbucket -> shard, from a lookup table" {
+  class: box
+  shape: diamond
+  width: 340
+  height: 150
+}
+
+note: "Why buckets and not hash % 4:\nchanging the shard count rehashes EVERY row.\nWith 1024 fixed buckets, adding a shard moves\na few buckets, not the whole dataset." {
+  shape: text
+  near: center-right
+  style: {
+    font-size: 15
+    italic: true
+  }
+}
+
+s0: "Shard 0  (buckets 0-341)" {
+  class: shard
+  p0: "primary\nwrites" {class: primary}
+  r0: "replica\nreads" {class: replica}
+  p0 -> r0: streaming {class: repl}
+}
+
+s1: "Shard 1  (342-682)" {
+  class: shard
+  p1: "primary\nwrites" {class: primary}
+  r1: "replica\nreads" {class: replica}
+  p1 -> r1: streaming {class: repl}
+}
+
+s2: "Shard 2  (683-1023)" {
+  class: shard
+  p2: "primary\nwrites" {class: primary}
+  r2: "replica\nreads" {class: replica}
+  p2 -> r2: streaming {class: repl}
+}
+
+report: "Reporting query\nno tenant_id in the predicate" {class: box}
+
+svc -> router: every query
+router -> s0.p0: write {class: write}
+router -> s1.p1: write {class: write}
+router -> s2.p2: write {class: write}
+router -> s0.r0: read {class: read}
+router -> s1.r1: read {class: read}
+router -> s2.r2: read {class: read}
+
+report -> s0.r0: fan out {class: danger}
+report -> s1.r1: fan out {class: danger}
+report -> s2.r2: fan out {class: danger}

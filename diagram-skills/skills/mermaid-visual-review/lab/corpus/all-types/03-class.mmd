@@ -1,0 +1,14 @@
+---
+title: Link and click records
+---
+classDiagram
+  class Link {
+    +String code
+    +String longUrl
+    +resolve() String
+  }
+  class Click {
+    +DateTime at
+    +String referrer
+  }
+  Link "1" --> "*" Click : records

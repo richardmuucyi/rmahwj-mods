@@ -1,0 +1,12 @@
+{
+  "name": "mermaid-toolchain-baseline",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pinned mermaid-cli rendering at Obsidian's bundled mermaid version.",
+  "dependencies": {
+    "@mermaid-js/mermaid-cli": "11.16.0"
+  },
+  "overrides": {
+    "mermaid": "11.13.0"
+  }
+}

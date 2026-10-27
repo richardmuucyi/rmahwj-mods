@@ -1,0 +1,11 @@
+# L0 -- the floor. A linear chain, default everything.
+# The only decision made here is `direction`, which is the one setting that changes
+# a diagram more than any other.
+direction: right
+
+laptop: Laptop
+gh: "GitHub repo"
+desktop: Desktop PC
+
+laptop -> gh: git push
+gh -> desktop: git pull

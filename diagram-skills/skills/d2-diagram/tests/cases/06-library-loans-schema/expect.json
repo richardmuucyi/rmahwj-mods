@@ -1,0 +1,29 @@
+{
+  "complexity": 6,
+  "scenario": "Library lending schema",
+  "teaches": "sql_table rows, constraints, crow's-foot cardinality, why ELK is mandatory here",
+  "expected_type": "sql_table (ERD)",
+  "type_alternatives": [
+    "UML class"
+  ],
+  "vectors_offered": [
+    "constraints",
+    "cardinality-arrowheads",
+    "classes"
+  ],
+  "layout": "elk",
+  "compile": true,
+  "shapes": 3,
+  "edges": 2,
+  "_shapes_note": "Table ROWS are not separate shapes in the inventory -- only the three tables are. Shape count on an ERD is the table count, never the column count.",
+  "must_contain_shapes": [
+    "member",
+    "loan",
+    "book"
+  ],
+  "must_contain_text": [
+    "card_no",
+    "returned_at"
+  ],
+  "max_aspect": 6.0
+}

@@ -1,0 +1,24 @@
+{
+  "complexity": 0,
+  "scenario": "Notes folder sync path between two machines",
+  "teaches": "direction, plain shapes, labelled connections",
+  "expected_type": "plain shapes + connections",
+  "type_alternatives": [],
+  "vectors_offered": [
+    "edge-labels",
+    "direction"
+  ],
+  "compile": true,
+  "shapes": 3,
+  "edges": 2,
+  "must_contain_shapes": [
+    "laptop",
+    "gh",
+    "desktop"
+  ],
+  "must_contain_text": [
+    "git push",
+    "git pull"
+  ],
+  "max_aspect": 6.0
+}

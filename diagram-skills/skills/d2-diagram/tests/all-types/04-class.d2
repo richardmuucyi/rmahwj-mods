@@ -1,0 +1,16 @@
+vars: { d2-config: { theme-id: 0; dark-theme-id: 200; pad: 40; layout-engine: elk } }
+title: "Link and click records" { shape: text; near: top-center; style.font-size: 20 }
+# `Link` cannot be a key: `link` is a reserved field (click-through URL), so d2 refuses it
+# with "reserved field Link does not accept composite". Key it differently, label it Link.
+link_record: Link {
+  shape: class
+  +code: string
+  +longUrl: string
+  +resolve(): string
+}
+click: Click {
+  shape: class
+  +at: datetime
+  +referrer: string
+}
+link_record -> click: records

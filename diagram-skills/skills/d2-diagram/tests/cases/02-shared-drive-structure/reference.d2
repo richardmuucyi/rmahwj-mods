@@ -1,0 +1,24 @@
+# L2 -- containers. Grouping is done with containers, never with shapes styled to
+# look grouped: containers are the only grouping the layout engine understands.
+direction: down
+
+drive: Team drive {
+  intake: "Intake" {
+    scans: "Scanned receipts"
+  }
+  projects: "Projects" {
+    website: Website redesign
+    app: Mobile app
+  }
+  reference: "Reference" {
+    policies: Policies
+    templates: Templates
+  }
+  archive: "Archive" {
+    closed: "Closed projects"
+  }
+}
+
+drive.intake -> drive.projects: filed into
+drive.intake -> drive.reference: distilled into
+drive.projects.website -> drive.archive.closed: moves when done

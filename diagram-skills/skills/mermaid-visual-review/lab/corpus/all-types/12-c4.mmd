@@ -1,0 +1,7 @@
+C4Context
+  title Link service context
+  Person(user, "User", "Clicks short links")
+  System(svc, "Link service", "Shortens and redirects")
+  System_Ext(analytics, "Analytics", "Counts clicks")
+  Rel(user, svc, "opens link")
+  Rel(svc, analytics, "publishes clicks")

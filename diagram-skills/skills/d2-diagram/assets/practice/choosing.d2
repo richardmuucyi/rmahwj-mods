@@ -1,0 +1,103 @@
+# Which form, and which layout engine.
+# The engine branch encodes a MEASUREMENT, not folklore. Practitioners often say "almost
+# always ELK"; across this skill's 21-diagram corpus ELK gave a tighter canvas 6 times,
+# dagre 8, with 7 ties. The pattern that did hold: ELK wins where containers and edges
+# are dense, dagre wins on linear flows.
+#
+# The node showing `layers` has the KEY `lyr`: `layers` is a reserved board keyword and
+# using it as a node name fails with "edge with board keyword alone doesn't make sense".
+# Keys are identifiers, labels are what people read -- so a safe key costs nothing.
+direction: down
+
+classes: {
+  q: {
+    shape: diamond
+    style: {
+      fill: "#EEF3FA"
+      stroke: "#3B5C8F"
+    }
+  }
+  ans: {
+    style: {
+      fill: "#FFFFFF"
+      stroke: "#C7D2E5"
+      bold: true
+    }
+  }
+  elk: {
+    style: {
+      fill: "#E4F1E8"
+      stroke: "#1E6F45"
+      bold: true
+    }
+  }
+  dag: {
+    style: {
+      fill: "#FDF1DF"
+      stroke: "#B26B00"
+      bold: true
+    }
+  }
+}
+
+title: Picking the form {
+  shape: text
+  near: top-center
+  style: {
+    font-size: 28
+    bold: true
+  }
+}
+
+start: What is it for? {class: q}
+
+order: Who calls whom {class: ans}
+data: Tables and keys {class: ans}
+table: Rows and columns {class: ans}
+zoom: Two zoom levels {class: ans}
+states: Same thing, two states {class: ans}
+boxes: Everything else {class: ans}
+
+seq: sequence_diagram {class: ans}
+erd: sql_table {class: ans}
+grid: grid-rows {class: ans}
+lyr: layers {class: ans}
+scen: scenarios {class: ans}
+plain: shapes + containers {class: ans}
+
+engine: Dense with containers? {class: q}
+useelk: use ELK {class: elk}
+usedag: use dagre {class: dag}
+
+start -> order
+start -> data
+start -> table
+start -> zoom
+start -> states
+start -> boxes
+
+order -> seq
+data -> erd
+table -> grid
+zoom -> lyr
+states -> scen
+boxes -> plain
+
+seq -> engine
+erd -> useelk: always
+grid -> engine
+lyr -> engine
+scen -> engine
+plain -> engine
+
+engine -> useelk: yes
+engine -> usedag: no, it is a flow
+
+note: "Do not guess. `render.py --compare-layouts` measures both." {
+  shape: text
+  near: bottom-center
+  style: {
+    font-size: 17
+    italic: true
+  }
+}

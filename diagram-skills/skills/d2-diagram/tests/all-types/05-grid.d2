@@ -1,0 +1,10 @@
+vars: { d2-config: { theme-id: 0; dark-theme-id: 200; pad: 40 } }
+title: "Which store handles what (illustrative)" { shape: text; near: top-center; style.font-size: 20 }
+matrix: "" {
+  grid-rows: 3
+  grid-columns: 3
+  grid-gap: 0
+  h0: "" ; h1: "MySQL" ; h2: "Bigtable"
+  r1: "writes" ; c11: "until cut over" ; c12: "after cut over"
+  r2: "reads" ; c21: "before 2023" ; c22: "by July 2023"
+}

@@ -1,0 +1,132 @@
+---
+title: Home Thermostat — A New Weekly Schedule & a Holiday Week
+---
+%% source: fictional example (smart thermostat app, two ways the weekly heating schedule changes)
+%%{init: { 'sequence': { 'useMaxWidth': false, 'actorMargin': 150, 'width': 450, 'messageMargin': 45} } }%%
+sequenceDiagram
+    title Thermostat App: New Weekly Schedule & Holiday Week
+    autonumber
+
+    participant TH as Wall Thermostat
+    participant APP as Phone App
+    participant SCH as Schedule Cloud
+    participant WX as Weather Feed
+    participant TAR as Energy Price Feed
+    participant HH as Householder
+
+    Note over TH, APP: Opening the Schedule Screen
+
+    alt Fresh Install, Nothing Set Up Yet
+        HH->>APP: Opens the app for the first time
+
+        par Fetch in parallel
+            APP->>SCH: GET /schedule
+            SCH-->>APP: Empty, no schedule yet
+
+            APP->>TH: Read current room temperature
+            TH-->>APP: 19.5 °C
+        end
+    else Holiday Week, Schedule Already Set Up
+        HH->>APP: Taps "Away next week"
+        APP->>SCH: GET /schedule
+        SCH-->>APP: Weekday and weekend blocks
+
+        par Fetch in parallel
+            APP->>WX: GET /forecast?days=7
+            WX-->>APP: Cold snap from Wednesday
+
+            APP->>TAR: GET /prices?days=7
+            TAR-->>APP: Half-hourly prices
+        end
+    end
+
+    rect rgb(230, 244, 250)
+        Note over APP, HH: Shaping the Week
+
+        alt Fresh Install — Pick a Starting Template
+            APP->>HH: Show three templates
+            HH->>APP: Picks "Out at work, home evenings"
+
+            alt Someone works from home on some days
+                Note over APP: Ask which days, then copy the evening block to daytime
+                par Fetch in parallel
+                    APP->>WX: GET /forecast?days=7
+                    WX-->>APP: Mild week
+
+                    APP->>TAR: GET /prices?days=7
+                    TAR-->>APP: Half-hourly prices
+                end
+            end
+
+            Note over APP: Comfort 21 °C, Eco 17 °C, Night 16 °C
+            Note right of APP: ✅ Night block always ends<br/>30 min before the first alarm.<br/>Taken from the phone's alarm clock.
+            APP->>HH: Show the drafted week
+        else Holiday Week — Keep the House Safe
+            Note over APP: Every day becomes one Frost-Guard block (10 °C).
+        end
+    end
+
+    rect rgb(250, 244, 228)
+        Note over APP, TAR: Cheaper Hours
+
+        APP->>TAR: Which hours are cheapest each day?
+
+        alt Fresh Install — Shift Warm-Up into Cheap Hours
+            TAR-->>APP: 05:00–06:30 cheapest most days
+
+            par Work out the shift
+                APP->>APP: Start the morning warm-up 40 min earlier
+                Note right of APP: Only if the house holds heat well
+
+                APP->>WX: Overnight lows for the week
+                WX-->>APP: 3 °C to 7 °C
+            end
+        else Holiday Week — Pre-Heat Before Coming Home
+            TAR-->>APP: Sunday 13:00–15:00 cheapest
+
+            par Plan the return
+                APP->>APP: Comfort block on Sunday from 14:00
+                APP->>WX: Sunday afternoon temperature
+                Note left of WX: Asked only for the return day
+                WX-->>APP: 6 °C
+            end
+        end
+    end
+
+    rect rgb(238, 236, 250)
+        Note over APP, SCH: Saving the Week
+        Note right of APP: Both paths save the same way.
+
+        opt IF the cold snap drops below 0 °C
+            Note over APP: ⬇️ Raise Frost-Guard for those nights
+
+            APP->>SCH: GET /schedule/frost-limits
+            SCH-->>APP: Lowest allowed 10 °C, highest 14 °C
+
+            APP->>HH: "Pipes may freeze. Raise to 12 °C on Wed–Thu nights?"
+            Note over HH: Householder reads the warning
+            Note right of HH: ⚠️ Only "Raise it" is offered<br/>while pipes are at risk
+            HH->>APP: Raise it
+        end
+
+        APP->>SCH: PUT /schedule (the new week)
+        SCH-->>APP: Saved
+
+        APP->>TH: Send the new week
+
+        alt Thermostat is offline
+            TH-->>APP: 🟠 No reply after 30 s
+            Note over APP: 🛑 Retry when the thermostat reconnects
+        else Thermostat is online
+            TH-->>APP: 🟢 Week stored on the device
+
+            rect rgb(244, 244, 242)
+                Note over APP, SCH: After Saving
+                APP->>SCH: POST /history (old week kept for undo)
+                Note right of SCH: One tap restores last week
+                SCH-->>APP: Stored
+            end
+
+            TH->>TH: Show the next block on the dial
+        end
+    end

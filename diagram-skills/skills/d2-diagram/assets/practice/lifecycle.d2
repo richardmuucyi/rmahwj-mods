@@ -1,0 +1,57 @@
+# How the community keeps diagrams true: they live with the code.
+# This is the single most repeated practice in the sources -- diagrams in the repo,
+# reviewed in pull requests, regenerated when the system changes.
+direction: down
+
+classes: {
+  step: {
+    style: {
+      fill: "#FFFFFF"
+      stroke: "#C7D2E5"
+      bold: true
+    }
+  }
+  auto: {
+    style: {
+      fill: "#E4F1E8"
+      stroke: "#1E6F45"
+      bold: true
+    }
+  }
+  rot: {
+    style: {
+      stroke: "#C0392B"
+      stroke-dash: 4
+    }
+  }
+}
+
+title: Diagrams that stay true {
+  shape: text
+  near: top-center
+  style: {
+    font-size: 28
+    bold: true
+  }
+}
+
+src: "source.d2" {
+  shape: document
+  class: step
+}
+repo: In the repo {class: step}
+pr: Pull request {class: step}
+ci: CI renders it {class: auto}
+docs: Published {class: auto}
+change: System changes {class: step}
+
+src -> repo: committed
+repo -> pr: reviewed as code
+pr -> ci: on merge
+ci -> docs: SVG or PNG
+change -> src: edit the text
+docs -> change: someone spots drift
+
+drawn: Drawn by hand {shape: oval; class: step}
+stale: Wrong within a month {shape: oval; class: step}
+drawn -> stale: nobody can diff it {class: rot}

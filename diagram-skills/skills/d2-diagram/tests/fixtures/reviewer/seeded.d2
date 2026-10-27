@@ -1,0 +1,17 @@
+direction: right
+
+title: {
+  shape: text
+  near: top-center
+  label: "Order service"
+  style.font-size: 20
+}
+
+box: "Runs entirely on the server — no human has access" {
+  style: { fill: "#f7fbff"; stroke: "#1565c0"; stroke-width: 3 }
+  api: "Order API"
+  db: "Orders DB" { shape: cylinder }
+  clerk: "Warehouse clerk" {shape: image; icon: ../../../assets/icons/people/actor-outline.svg; width: 54; height: 54}
+  api -> db: writes
+  clerk -> api: confirms dispatch
+}

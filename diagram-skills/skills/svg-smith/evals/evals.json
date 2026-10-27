@@ -1,0 +1,100 @@
+{
+  "skill_name": "svg-smith",
+  "evals": [
+    {
+      "id": 0,
+      "name": "fetch-known-brand-mark",
+      "prompt": "can you get me the Slack logo as an svg? it's for a partner slide deck. ideally the full thing with the wordmark, not just the coloured hash on its own",
+      "expected_output": "Official Slack artwork sourced from Slack's own brand/press assets (not drawn from memory, not traced), delivered as a clean SVG, rendered and visually confirmed, with provenance stated. Should notice the mark-only vs mark+wordmark distinction the user raised.",
+      "files": [],
+      "assertions": [
+        "Delivered a well-formed SVG that parses as XML",
+        "SVG is pure vector - contains no embedded raster <image> element",
+        "Artwork was sourced from Slack's own site or brand/press assets, not hand-drawn from memory and not taken from a third-party icon site",
+        "Delivered the mark WITH the wordmark, as the user specifically asked, or explained why not",
+        "Stated provenance - says where the artwork came from",
+        "Rendered the result and looked at it before delivering (render artifact present or described)",
+        "Did not claim pixel-perfect or exact fidelity without a control to back it"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "author-original-mono-icon",
+      "prompt": "im building a little cli tool called burrow that caches build artifacts locally so rebuilds are fast. i want a simple monochrome icon for the github readme and the favicon. nothing fancy, just something that reads well small",
+      "expected_output": "An original SVG icon, monochrome and recolourable, verified legible at favicon sizes via a multi-size render. Any design questions asked once and batched, not drip-fed; obvious defaults decided rather than asked.",
+      "files": [],
+      "assertions": [
+        "Delivered a well-formed SVG that parses as XML",
+        "Icon is monochrome - one fill colour or currentColor throughout",
+        "Verified legibility at favicon scale by rendering at 48px or smaller",
+        "Any design questions were asked once as a batch, not drip-fed, and did not block delivery",
+        "SVG is pure vector - contains no embedded raster <image> element",
+        "Artwork has clear space - does not run to the very edge of the viewBox"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "repair-bloated-vendor-svg",
+      "prompt": "our vendor emailed over their logo as an svg (evals/files/vendor-logo.svg). it's over 100kb which seems mad for a logo, and when i put it on the same page as another svg the colours go haywire. can you sort it out and give me back something i can actually use",
+      "expected_output": "Diagnoses the id collision as the colour-corruption cause and namespaces ids; explains why the file is large (outlined circular text) rather than blindly shrinking it; verifies the repaired file still matches the original with a diff plus control.",
+      "files": [
+        "evals/files/vendor-logo.svg"
+      ],
+      "assertions": [
+        "Delivered a well-formed SVG that parses as XML",
+        "Correctly diagnosed a real mechanism for the colour corruption - either document-scoped CSS from a neighbouring SVG overriding presentation attributes, or duplicate/generic ids colliding - and did not just guess",
+        "Output ids are namespaced or otherwise made collision-safe",
+        "Explained WHY the file is large (outlined circular lettering) rather than only compressing it",
+        "Verified the repaired file still renders the same as the original, using a diff with a control",
+        "Left the vendor's original input file unmodified"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "underspecified-brief-must-ask",
+      "prompt": "my business partner and i are starting a small business doing custom cabinetry and built-in shelving, mostly for older homes around here. we need a logo. can you make us one?",
+      "expected_output": "",
+      "files": [],
+      "assertions": [
+        "Delivered an actual SVG rather than stalling on unanswered questions",
+        "Asked about things only the client can know (business name, where it will physically appear, who it is for) - not things the scripts can measure",
+        "Did NOT ask questions it could have answered itself by measuring (legibility at size, contrast, whether two shapes match)",
+        "Questions are batched in one block, not drip-fed across the work",
+        "Stated the assumption it proceeded on for each open question",
+        "Verified the result by rendering at multiple sizes and on light and dark",
+        "Design is defensible for the stated trade - not generic clip-art"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "icon-set-family-consistency",
+      "prompt": "i've got a self-hosted dashboard and the nav has 5 sections - overview, storage, network, backups, settings. the icons i grabbed off the internet are a mishmash of different styles and it looks cheap. can you make me a consistent set?",
+      "expected_output": "",
+      "files": [],
+      "assertions": [
+        "Delivered five distinct SVG icons, one per named section",
+        "Icons share a consistent visual system (same stroke weight or fill approach, same optical size, same grid)",
+        "Consistency was VERIFIED by measurement or a side-by-side render, not merely asserted",
+        "Each icon is legible at nav scale (verified at 24px or smaller)",
+        "Icons are monochrome or otherwise recolourable to match a theme",
+        "All files are well-formed pure vector with collision-safe ids"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "figurative-routing",
+      "prompt": "we run a small craft brewery called Ninefold and we need a badge logo for the cans - a stag's head. something with the presence of the starbucks siren or that chagee opera face, thats the kind of quality im after. goes on the cans and the website mainly.",
+      "expected_output": "",
+      "files": [],
+      "assertions": [
+        "Reached for image generation (any available image generator, or a flat two-colour PNG requested from the user) rather than opening with hand-drawn Bezier coordinates",
+        "Did NOT burn several hand-drawn drafts before changing method",
+        "Obtained the named reference marks (Starbucks / CHAGEE) and measured the result against them BEFORE delivering, not after",
+        "Delivered a well-formed, pure-vector SVG with collision-safe ids",
+        "Verified the trace did not silently drop detail (blob count, or an equivalent explicit check)",
+        "Any questions asked were things only the client can know, not things the scripts can measure",
+        "Stated honestly that the artwork is machine-generated then vectorised, given this is a commercial brand"
+      ]
+    }
+  ]
+}

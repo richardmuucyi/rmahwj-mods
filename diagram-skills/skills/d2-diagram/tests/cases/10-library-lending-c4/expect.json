@@ -1,0 +1,36 @@
+{
+  "complexity": 10,
+  "scenario": "C4 model of a library lending system, three levels, clickable",
+  "teaches": "layers inherit NOTHING; cross-board link:; actor icons; d2-config travels with the file",
+  "expected_type": "C4 via layers",
+  "type_alternatives": [
+    "plain containers",
+    "one diagram per level"
+  ],
+  "vectors_offered": [
+    "layers",
+    "links",
+    "c4-person",
+    "theme-303",
+    "title-text-shape"
+  ],
+  "compile": true,
+  "multiboard": true,
+  "boards": 3,
+  "_boards_note": "index.svg + container.svg + component.svg, FLAT. Layers only, so no layers/ subdirectory.",
+  "_layout_note": "No --layout passed on purpose: layout-engine and theme-id come from vars.d2-config in the file, so this case also proves that config travels with the diagram.",
+  "shapes": 6,
+  "edges": 4,
+  "must_contain_shapes": [
+    "member",
+    "librarian",
+    "lending",
+    "catalogue",
+    "payments",
+    "title"
+  ],
+  "must_contain_text": [
+    "City library lending"
+  ],
+  "max_aspect": 6.0
+}

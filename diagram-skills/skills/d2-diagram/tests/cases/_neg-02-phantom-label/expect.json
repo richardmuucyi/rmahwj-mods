@@ -1,0 +1,10 @@
+{
+  "complexity": 0,
+  "scenario": "CONTROL: valid D2 that draws the wrong graph",
+  "teaches": "connecting labels invents shapes; real newlines in a label invent shapes",
+  "compile": true,
+  "shapes": 3,
+  "edges": 1,
+  "expect_gate_failures": ["shape-count", "no-phantom-shapes"],
+  "max_aspect": 6.0
+}

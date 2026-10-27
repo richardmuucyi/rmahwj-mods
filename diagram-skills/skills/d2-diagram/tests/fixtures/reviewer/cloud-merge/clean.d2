@@ -1,0 +1,66 @@
+# SOURCE: the cloud VM clones the GitHub remote at the current branch, not the local checkout = code.claude.com/docs/en/claude-code-on-the-web.md ("clones your current directory's GitHub remote at your current branch, not your local checkout, so push first")
+# SOURCE: without the Claude GitHub App on the repo, claude --cloud uploads a local bundle (with uncommitted tracked changes) instead of cloning = claude-code-on-the-web.md, "Send local repositories without GitHub"
+# SOURCE: a PR that conflicts after main moves is fixed in the session = claude-code-on-the-web.md, Auto-fix ("open the session and ask Claude to rebase")
+# SOURCE: the session pushes claude/ branches = code.claude.com/docs/en/claude-code-on-the-web.md
+# SOURCE: "When a session completes, you can create a PR from claude.ai/code" = claude-code-on-the-web.md
+# SOURCE: claude --cloud "task" starts a cloud session from the CLI = claude-code-on-the-web.md
+# SOURCE: cloning and pull request creation require GitHub = claude-code-on-the-web.md, Limitations
+# SOURCE: your repository's remote is GitHub = git remote -v
+# SOURCE: git commit + git push publishes your local work to the remote = git-push documentation
+# SOURCE: git pull and git merge stop on a merge conflict, merge left open = git-merge documentation
+# SOURCE: git pull fetches the remote's commits and merges them into the current branch = git-pull documentation
+# SOURCE: a pull merges rather than rebases = git config pull.rebase=false
+# SOURCE-EXEMPT: "Files changed" and "Merge pull request" = standard GitHub UI labels, not checked against a live page this session
+# SOURCE-EXEMPT: "your-task" in the branch name is a placeholder
+# NOT CLAIMED: the exact label of the PR button in claude.ai/code -- the docs say "create a PR", not the button text
+# NOT CLAIMED: whether the session pushes as it goes or only at the end -- the docs say it pushes claude/ branches
+
+shape: sequence_diagram
+
+classes: {
+  pc:     { style: { fill: "#eff6ff"; stroke: "#2563eb"; stroke-width: 2; border-radius: 6; font-size: 20; bold: true } }
+  trunk:  { style: { fill: "#ccfbf1"; stroke: "#0f766e"; stroke-width: 2; border-radius: 6; font-size: 20; bold: true } }
+  side:   { style: { fill: "#fef3c7"; stroke: "#b45309"; stroke-width: 2; border-radius: 6; font-size: 20; bold: true } }
+  page:   { style: { fill: "#ffffff"; stroke: "#7b8794"; stroke-width: 2; border-radius: 6; font-size: 20 } }
+  remote: { style: { fill: "#f1f5f9"; stroke: "#7b8794"; stroke-width: 2; border-radius: 6; font-size: 20; bold: true } }
+  step:   { style: { stroke: "#2563eb"; stroke-width: 2; font-size: 19 } }
+  alt:    { style: { stroke: "#b45309"; stroke-width: 2; stroke-dash: 5; font-size: 19 } }
+}
+
+title: {
+  shape: text
+  near: top-center
+  label: "Cloud session to main: how the work gets back to your PC"
+  style: { font-size: 28; bold: true; font-color: "#0f172a" }
+}
+
+# Column order, left to right
+you: "You\n(your PC, your repo)" { class: pc }
+main: "GitHub\nmain" { class: trunk }
+pr: "GitHub\npull request page" { class: page }
+branch: "GitHub\nclaude/your-task" { class: side }
+vm: "Cloud session\n(Anthropic's machine)" { class: remote }
+
+start: "Start the job" {
+  you -> main: "1 · git commit + git push" { class: step }
+  you."type:\nclaude --cloud \"your task\""
+  you -> vm: "2 · this starts a cloud session" { class: step }
+  main -> vm: "3 · clones main from GitHub\n(needs the Claude GitHub App:\nthen it sees only what you pushed)" { class: step }
+  vm -> vm: "works: edits + commits" { class: step }
+  vm -> branch: "4 · push to its own branch\n(main is untouched)" { class: step }
+}
+
+route_a: "Route A: merge on GitHub's website (recommended)" {
+  branch -> pr: "A1 · you create a PR (in claude.ai/code)" { class: step }
+  you -> pr: "A2 · review the Files changed tab" { class: step }
+  pr."Not happy? Close the PR unmerged.\nmain stays as it was."
+  pr -> main: "A3 · Merge pull request" { class: step }
+  main -> you: "A4 · git pull\n(merges main into\nyour local branch)" { class: step }
+}
+
+route_b: "Route B: ask Claude on your PC to merge it (no GitHub PR page)" {
+  branch -> you: "B1 · git fetch + git merge" { class: alt }
+  you -> main: "B2 · git push" { class: alt }
+}
+
+you."Conflict = both sides changed the same lines.\nPR conflicts at A3 (main moved): ask the cloud session to rebase.\ngit pull in A4 or git merge in B1 stops: ask Claude here."

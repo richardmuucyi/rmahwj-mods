@@ -1,0 +1,72 @@
+%% source: fictional example (weather app, forecast refresh on the server and on the phone)
+graph TD
+    %% ==========================================
+    %% Forecast Service — hourly refresh
+    %% ==========================================
+    subgraph SERVICE["Forecast Service — Hourly Refresh"]
+        Tick[Hourly Timer Fires]
+        AskModels[Ask Three Weather Models<br/>for the Next 48 Hours]
+        Wait(Wait for Replies)
+        AllBack{All Models Replied?}
+        UseLast[Reuse Last Good Copy<br/>for the Missing Model]
+        Blend[Blend the Models<br/>into One Forecast]
+        RainJump{Rain Chance Jumped<br/>More Than 30 Points?}
+        FlagChange[Mark the City as Changed]
+        SaveCache(Save to Forecast Cache)
+        CityLoop{More Cities Left?}
+
+        Tick --> AskModels
+        AskModels --> Wait
+        Wait --> AllBack
+        AllBack -- No --> UseLast
+        UseLast --> Blend
+        AllBack -- Yes --> Blend
+        Blend --> RainJump
+        RainJump -- Yes --> FlagChange
+        FlagChange --> SaveCache
+        RainJump -- No --> SaveCache
+        SaveCache --> CityLoop
+        CityLoop -- Yes --> AskModels
+    end
+
+    %% ==========================================
+    %% Phone App — alerts and home-screen widget
+    %% ==========================================
+    subgraph PHONE["Phone App — Alerts &amp; Widget"]
+        Push(Silent Push Arrives)
+        Fetch[Fetch the Fresh Forecast]
+        Quiet{Inside Quiet Hours?}
+        Hold[Hold the Alert<br/>Until Morning]
+        Notify[Show Rain Alert]
+        Widget(Redraw Home-Screen Widget)
+        Opened{App Opened<br/>by the User?}
+        Hourly[Draw Hourly Chart]
+        Radar[Load Rain Radar Tiles]
+        Idle[Back to Sleep]
+
+        Push --> Fetch
+        Fetch --> Quiet
+        Quiet -- Yes --> Hold
+        Quiet -- No --> Notify
+        Hold --> Widget
+        Notify --> Widget
+        Widget --> Opened
+        Opened -- Yes --> Hourly
+        Hourly --> Radar
+        Opened -- No --> Idle
+    end
+
+    CityLoop -- No --> Push
+
+    %% ==========================================
+    %% STYLING
+    %% ==========================================
+    classDef sky fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef sun fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef storm fill:#ffebee,stroke:#c62828,stroke-width:2px
+    classDef leaf fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+
+    class Tick,Push,Opened,Idle sky
+    class AskModels,Wait,AllBack,Blend,RainJump,SaveCache,CityLoop,Fetch,Quiet sun
+    class UseLast,FlagChange,Hold storm
+    class Notify,Widget,Hourly,Radar leaf

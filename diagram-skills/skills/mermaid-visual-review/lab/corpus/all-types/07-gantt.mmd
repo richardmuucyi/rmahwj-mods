@@ -1,0 +1,19 @@
+---
+config:
+  gantt:
+    barHeight: 28
+    barGap: 8
+    topPadding: 60
+    useWidth: 900
+---
+gantt
+  title Store migration (illustrative schedule)
+  dateFormat YYYY-MM-DD
+  axisFormat %d %b
+  tickInterval 1week
+  section Prepare
+    Dual writes on        :a1, 2023-01-02, 14d
+    Backfill rows         :a2, after a1, 6d
+  section Cut over
+    Read from Bigtable    :a3, after a2, 7d
+    Turn off MySQL writes :a4, after a3, 10d

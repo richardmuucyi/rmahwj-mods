@@ -1,0 +1,13 @@
+# CONTROL: the legend advertises `ext`, which the body never uses -- the exact
+# failure produced by copying a legend between diagrams that share a palette.
+# Criterion 9 must FAIL.
+...@_classes
+api: API {class: svc}
+db: Store {class: store}
+api -> db: writes
+legend: "" {
+  near: bottom-center
+  L1: "Service" {class: svc}
+  L2: "Data store" {class: store}
+  L3: "Third party" {class: ext}
+}

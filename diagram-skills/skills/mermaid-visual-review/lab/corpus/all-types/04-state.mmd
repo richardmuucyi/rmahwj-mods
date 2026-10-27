@@ -1,0 +1,9 @@
+---
+title: Lifecycle of a short link
+---
+stateDiagram-v2
+  [*] --> Active
+  Active --> Disabled : owner disables
+  Disabled --> Active : owner re-enables
+  Active --> Expired : expiry date passes
+  Expired --> [*]

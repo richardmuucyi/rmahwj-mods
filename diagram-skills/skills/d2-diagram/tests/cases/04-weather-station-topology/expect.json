@@ -1,0 +1,30 @@
+{
+  "complexity": 4,
+  "scenario": "Weather-station network topology",
+  "teaches": "globs for the rule + explicit override for the exception, cloud shape for external systems",
+  "expected_type": "plain shapes + containers",
+  "type_alternatives": [
+    "C4 container diagram"
+  ],
+  "vectors_offered": [
+    "classes",
+    "globs",
+    "containers",
+    "shape-semantics",
+    "icons"
+  ],
+  "compile": true,
+  "shapes": 8,
+  "edges": 6,
+  "must_contain_shapes": [
+    "ridge",
+    "ridge.s01",
+    "collector",
+    "forecast",
+    "alerts"
+  ],
+  "must_contain_text": [
+    "storm warning check"
+  ],
+  "max_aspect": 6.0
+}

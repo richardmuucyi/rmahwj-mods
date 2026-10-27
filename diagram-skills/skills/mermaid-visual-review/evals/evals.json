@@ -1,0 +1,115 @@
+{
+  "skill_name": "mermaid-visual-review",
+  "evals": [
+    {
+      "id": 1,
+      "name": "broken-state-diagram-regression",
+      "prompt": "Review the mermaid diagram in evals/inputs/01-broken-state-diagram.md and improve it to spec-ready quality. The block contains a state-lifecycle flowchart with known visual issues.",
+      "files": ["evals/inputs/01-broken-state-diagram.md"],
+      "expected_output": "Final mermaid source has title frontmatter, text clipping fixed, subgraph-direction issue resolved (likely via card-with-hr-pattern), cycle order fixed (linearised to terminal reset node). Iteration count <= 3.",
+      "assertions": [
+        { "id": "produces-png-render", "description": "A PNG was rendered at least once during the run" },
+        { "id": "final-source-renders-clean", "description": "The final mermaid source re-renders with mmdc exit code 0" },
+        { "id": "final-source-has-title-frontmatter", "description": "Final mermaid contains ---\\ntitle: ...\\n---" },
+        { "id": "iteration-count-within-cap", "description": "iterations <= 5" },
+        { "id": "case-1-catches-text-clipping", "description": "First self-review verdict's critical list mentions text clipping" }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "already-clean-flowchart",
+      "prompt": "Review the mermaid diagram in evals/inputs/02-clean-flowchart.md and improve it if needed.",
+      "files": ["evals/inputs/02-clean-flowchart.md"],
+      "expected_output": "Skill renders, self-review finds no CRITICAL issues, subagent confirms ship-ready, iteration count = 1, no changes applied to source (or only whitespace-equivalent changes).",
+      "assertions": [
+        { "id": "produces-png-render", "description": "A PNG was rendered" },
+        { "id": "final-source-renders-clean", "description": "Final source re-renders clean" },
+        { "id": "final-source-has-title-frontmatter", "description": "Final mermaid has title frontmatter" },
+        { "id": "iteration-count-within-cap", "description": "iterations <= 5" },
+        { "id": "case-2-no-fixes-applied", "description": "Final source semantically identical to input (ignore whitespace)" }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "sequence-diagram-with-overlap",
+      "prompt": "Review the mermaid diagram in evals/inputs/03-sequence-with-overlap.mmd and improve it. It is a sequence diagram with long self-loops.",
+      "files": ["evals/inputs/03-sequence-with-overlap.mmd"],
+      "expected_output": "Skill handles the .mmd input shape, loads references/diagram-types/sequence.md, catches the self-loop collision, fixes it (likely via sequence-self-loop-note). Final source has a title frontmatter inferred from the filename.",
+      "assertions": [
+        { "id": "produces-png-render", "description": "A PNG was rendered" },
+        { "id": "final-source-renders-clean", "description": "Final source re-renders clean" },
+        { "id": "final-source-has-title-frontmatter", "description": "Final mermaid has title frontmatter" },
+        { "id": "iteration-count-within-cap", "description": "iterations <= 5" },
+        { "id": "case-3-loaded-sequence-reference", "description": "Transcript shows references/diagram-types/sequence.md was read AND the file contains non-trivial sequence-specific guidance" }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "missing-title",
+      "prompt": "Review the mermaid diagram in evals/inputs/04-missing-title.md and improve it.",
+      "files": ["evals/inputs/04-missing-title.md"],
+      "expected_output": "Pre-flight rule inserts title frontmatter before iteration loop. Final source has title 'Some Note' or 'Untitled flowchart diagram'.",
+      "assertions": [
+        { "id": "produces-png-render", "description": "A PNG was rendered" },
+        { "id": "final-source-renders-clean", "description": "Final source re-renders clean" },
+        { "id": "final-source-has-title-frontmatter", "description": "Final mermaid has title frontmatter" },
+        { "id": "iteration-count-within-cap", "description": "iterations <= 5" },
+        { "id": "case-4-title-inserted", "description": "Input lacked title frontmatter; output has it" }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "zinc-light-themed-render",
+      "prompt": "Review the mermaid diagram in evals/inputs/05-cluttered-diagram.md and run the full workflow with stakeholder_render = zinc-light. Confirm the themed PNG is produced via mmdc + init-block themeVariables and the fresh-eyes subagent dispatched.",
+      "files": ["evals/inputs/05-cluttered-diagram.md"],
+      "expected_output": "Final mermaid source unchanged from input (Phase A clean). Themed PNG produced at the Step 6 destination using themes/zinc-light.json — slate-grey edges, light cluster tints. Fresh-eyes subagent verdict captured and surfaced.",
+      "assertions": [
+        { "id": "produces-png-render", "description": "A PNG was rendered at least once" },
+        { "id": "final-source-renders-clean", "description": "Final mermaid re-renders with mmdc exit code 0" },
+        { "id": "final-source-has-title-frontmatter", "description": "Final mermaid has title YAML" },
+        { "id": "iteration-count-within-cap", "description": "iterations <= 5" },
+        { "id": "case-5-themed-png-exists", "description": "Step 6 produced a PNG with `-zinc-light.png` filename suffix at the expected destination" },
+        { "id": "case-5-no-mermaid-pro-invoked", "description": "Transcript shows no `mermaid-pro` shell invocation" }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "existing-init-themed-render",
+      "prompt": "Review the mermaid diagram in evals/inputs/06-existing-init-themed.md and run the full workflow with stakeholder_render = zinc-light. The block already contains an init block with flowchart padding settings — the themed render must preserve them.",
+      "files": ["evals/inputs/06-existing-init-themed.md"],
+      "expected_output": "Phase A self-review walks the catalogue (likely no critical fixes needed). Phase B themed render produced via merge_theme.py — single init block in the themed source containing both the original flowchart.padding/nodeSpacing/rankSpacing AND the zinc-light themeVariables. Fresh-eyes subagent dispatched. Themed PNG saved with -zinc-light suffix.",
+      "assertions": [
+        { "id": "produces-png-render", "description": "A PNG was rendered" },
+        { "id": "final-source-renders-clean", "description": "Final source re-renders clean" },
+        { "id": "final-source-has-title-frontmatter", "description": "Final source has title YAML" },
+        { "id": "iteration-count-within-cap", "description": "iterations <= 5" },
+        { "id": "case-6-themed-png-exists", "description": "Step 6 produced a -zinc-light.png" },
+        { "id": "case-6-themed-source-has-single-init-block", "description": "If the themed temp source can be inspected: it contains exactly one %%{init: …}%% block" },
+        { "id": "case-6-themed-source-preserves-padding", "description": "Themed source still contains 'padding' / '18' / 'nodeSpacing' / '55' (Phase A directives merged, not dropped)" }
+      ]
+    },
+    {
+      "id": 7,
+      "name": "multi-block-disambiguation",
+      "prompt": "Review the mermaid diagrams in evals/inputs/07-multi-block.md.",
+      "files": ["evals/inputs/07-multi-block.md"],
+      "expected_output": "Skill detects two blocks, lists them with index/diagram_type/title/start_line, and prompts for which one to review. Does not silently pick block 0.",
+      "assertions": [
+        { "id": "case-7-extract-found-two-blocks", "description": "extract_blocks.py output shows two blocks (flowchart and sequenceDiagram)" },
+        { "id": "case-7-prompted-for-disambiguation", "description": "Transcript shows the skill listed both blocks and asked which to review (or accepted a block_index from the prompt)" },
+        { "id": "case-7-only-one-block-edited", "description": "Final state of the .md file shows exactly one mermaid block changed (the other untouched)" }
+      ]
+    },
+    {
+      "id": 8,
+      "name": "broken-init-fails-cleanly",
+      "prompt": "Review the mermaid diagram in evals/inputs/08-broken-init.md.",
+      "files": ["evals/inputs/08-broken-init.md"],
+      "expected_output": "Step 2 sanity render fails because the init block has a trailing comma and unbalanced braces. Skill reports the failure with the source excerpt and stops — does not enter the iteration loop, does not silently 'fix' by removing the init block without telling the user.",
+      "assertions": [
+        { "id": "case-8-skill-stopped-before-iteration-loop", "description": "Transcript shows skill detected the render failure at pre-flight (Step 2) and stopped, surfacing the error to the user" },
+        { "id": "case-8-skill-did-not-silently-mutate-source", "description": "If the skill chose to repair the init block, it did so explicitly (per the repair-init-block recipe) and reported the change in the completion message — not a silent overwrite" }
+      ]
+    }
+  ]
+}

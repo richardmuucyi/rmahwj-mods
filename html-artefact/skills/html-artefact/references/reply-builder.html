@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reply builder — pattern template</title>
+<!--
+  Pattern template for html-artefact: PROMPT CARD + REPLY BUILDER.
+  Adapted from Thariq's "Know your unknowns" pages 03 (pick + steal/skip chips) and 05 (resonate
+  checkboxes). Copy the pieces you need; delete the rest. Fictional example content.
+
+  Block 1: preselected on load, so the reply is never empty.
+  Block 2: starts empty, so Copy is disabled and the box says what to do.
+  Pick one policy per page; both are shown only so you can lift either.
+
+  Ids the regression test (evals/test_reply_builder.py) relies on:
+    #copy-prompt #prompt-text | .pick .tog #reply-1 #copy-reply-1 | .res #reply-2 #copy-reply-2 #count-2
+-->
+<style>
+  :root {
+    --ivory: #FAF9F5; --white: #FFFFFF; --slate: #141413; --clay: #D97757; --clay-d: #B85C3E;
+    --oat: #E3DACC; --olive: #788C5D; --gray-150: #F0EEE6; --gray-300: #D1CFC5; --gray-500: #87867F;
+    --gray-700: #3D3D3A; --gray-800: #2A2A28;
+    --serif: ui-serif, Georgia, 'Times New Roman', serif;
+    --sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --mono: ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: var(--sans); background: var(--ivory); color: var(--gray-700); line-height: 1.55; padding: 48px 24px 96px; }
+  .page { max-width: 880px; margin: 0 auto; }
+  .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 14px; }
+  h1 { font-family: var(--serif); font-weight: 500; font-size: clamp(26px, 4vw, 40px); line-height: 1.1; letter-spacing: -.018em; color: var(--slate); margin-bottom: 18px; }
+  h2 { font-family: var(--serif); font-weight: 500; font-size: 22px; color: var(--slate); margin: 36px 0 6px; }
+  .sub { color: var(--gray-500); margin-bottom: 14px; }
+
+  /* prompt card: the verbatim prompt, copyable, above the frame that shows what came back */
+  .prompt-card { background: var(--gray-150); border: 1px solid var(--gray-300); border-radius: 10px; padding: 14px 18px; margin: 8px 0 24px; }
+  .prompt-label { display: flex; justify-content: space-between; align-items: center; font-family: var(--mono); font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 8px; }
+  .prompt { font-family: var(--mono); font-size: 13px; color: var(--gray-800); }
+  .frame { border: 1px solid var(--gray-300); border-radius: 12px; background: var(--white); overflow: hidden; }
+  .frame-bar { padding: 8px 14px; background: var(--gray-150); border-bottom: 1px solid var(--gray-300); font-family: var(--mono); font-size: 11px; color: var(--gray-500); }
+  .frame-body { padding: 8px 22px 26px; }
+
+  button { font: inherit; cursor: pointer; }
+  .btn { font-family: var(--mono); font-size: 11px; padding: 5px 12px; border-radius: 6px; border: 1px solid var(--gray-300); background: var(--white); color: var(--gray-700); }
+  .btn:hover:not(:disabled) { border-color: var(--clay); }
+  .btn.primary { background: var(--clay); border-color: var(--clay); color: var(--white); }
+  .btn.primary:hover:not(:disabled) { background: var(--clay-d); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.flash { background: var(--olive); border-color: var(--olive); color: var(--white); }
+
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+  .pick, .tog { font-family: var(--mono); font-size: 12px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--gray-300); background: var(--white); color: var(--gray-700); }
+  .pick.on { background: var(--slate); color: var(--white); border-color: var(--slate); }
+  .tog.steal.on { background: var(--oat); border-color: var(--olive); color: var(--slate); }
+  .tog.skip.on { background: var(--gray-150); border-color: var(--gray-500); color: var(--gray-500); text-decoration: line-through; }
+  .opt { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--gray-300); border-radius: 8px; margin: 8px 0; background: var(--white); }
+  .opt.checked { border-color: var(--clay); background: var(--gray-150); }
+  .opt b { color: var(--slate); }
+
+  .reply { margin-top: 16px; border: 1px dashed var(--gray-500); border-radius: 10px; padding: 12px 14px; background: var(--ivory); }
+  .reply .label { display: flex; justify-content: space-between; align-items: center; font-family: var(--mono); font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 8px; }
+  .reply pre { white-space: pre-wrap; font-family: var(--mono); font-size: 12.5px; color: var(--gray-800); min-height: 3.2em; }
+  .reply pre.empty { color: var(--gray-500); }
+
+  @media (max-width: 560px) { body { padding: 28px 16px 64px; } .frame-body { padding: 4px 14px 20px; } }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="eyebrow">Pattern template · Prompt card + reply builder</div>
+  <h1>Pick, steal, skip: your clicks write the reply</h1>
+
+  <!-- PROMPT CARD: always verbatim, always copyable -->
+  <div class="prompt-card">
+    <div class="prompt-label"><span>The prompt</span><button class="btn" id="copy-prompt">Copy prompt</button></div>
+    <div class="prompt" id="prompt-text">I want a settings page for the sync tool but I have no visual taste. Make one HTML page with 3 different directions so I can react to them.</div>
+  </div>
+
+  <!-- FRAME: what was produced, with a bar saying what it was built from (derive this from what was actually read) -->
+  <div class="frame">
+    <div class="frame-bar">settings-directions · 3 mock layouts · built from the 14 settings keys listed in sync/config.ts</div>
+    <div class="frame-body">
+
+      <h2>Block 1 — pick a direction, steal and skip details</h2>
+      <p class="sub">Preselected on load, so the reply is never empty.</p>
+      <div class="row" id="picks">
+        <button class="pick" data-name="Direction A (dense table)">A · dense table</button>
+        <button class="pick" data-name="Direction B (grouped cards)">B · grouped cards</button>
+        <button class="pick" data-name="Direction C (wizard)">C · wizard</button>
+      </div>
+      <div class="row" id="togs">
+        <button class="tog steal" data-label="the inline validation hints (A)">steal · inline validation hints (A)</button>
+        <button class="tog steal" data-label="the sticky save bar (B)">steal · sticky save bar (B)</button>
+        <button class="tog skip" data-label="the three-step progress (C)">skip · three-step progress (C)</button>
+        <button class="tog skip" data-label="the all-caps section labels (A)">skip · all-caps section labels (A)</button>
+      </div>
+      <div class="reply">
+        <div class="label"><span>Your reply</span><button class="btn primary" id="copy-reply-1">Copy reply</button></div>
+        <pre id="reply-1"></pre>
+      </div>
+
+      <h2>Block 2 — tick what resonates</h2>
+      <p class="sub">Starts empty, so Copy is disabled and the box says what to do.</p>
+      <label class="opt" data-n="1"><input type="checkbox" class="res" data-n="1"><span><b>1.</b> Wire the existing import wizard into first run.</span></label>
+      <label class="opt" data-n="2"><input type="checkbox" class="res" data-n="2"><span><b>2.</b> Show the last sync result on the home screen.</span></label>
+      <label class="opt" data-n="3"><input type="checkbox" class="res" data-n="3"><span><b>3.</b> Add a dry-run toggle before the first real sync.</span></label>
+      <div class="reply">
+        <div class="label"><span>Your reply · <span id="count-2">0</span> picked</span><button class="btn primary" id="copy-reply-2" disabled>Copy reply</button></div>
+        <pre id="reply-2" class="empty"></pre>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  // ---- clipboard with execCommand fallback (navigator.clipboard is unreliable on file://) ----
+  function copyText(text, btn) {
+    var idle = btn.textContent;
+    function done(ok) {
+      btn.textContent = ok ? 'Copied ✓' : 'Copy failed';
+      btn.classList.add('flash');
+      setTimeout(function () { btn.textContent = idle; btn.classList.remove('flash'); }, 1400);
+    }
+    function fallback() {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+      done(ok);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, fallback);
+    } else { fallback(); }
+  }
+
+  document.getElementById('copy-prompt').addEventListener('click', function () {
+    copyText(document.getElementById('prompt-text').textContent.trim(), this);
+  });
+
+  // ---- Block 1: state lives in JS, the reply is rendered from it ----
+  var s1 = { direction: 'Direction B (grouped cards)', steal: ['the sticky save bar (B)'], skip: ['the three-step progress (C)'] };
+  var picks = [].slice.call(document.querySelectorAll('.pick'));
+  var togs = [].slice.call(document.querySelectorAll('.tog'));
+  var reply1 = document.getElementById('reply-1');
+
+  function build1() {
+    var lines = ['Go with ' + (s1.direction || '[pick a direction]') + '.'];
+    if (s1.steal.length) lines.push('Steal: ' + s1.steal.join('; ') + '.');
+    if (s1.skip.length) lines.push('Skip: ' + s1.skip.join('; ') + '.');
+    lines.push('Then build the real page in src/pages/Settings against the existing config API.');
+    reply1.textContent = lines.join('\n');
+    picks.forEach(function (p) { p.classList.toggle('on', p.dataset.name === s1.direction); });
+    togs.forEach(function (t) {
+      var list = t.classList.contains('steal') ? s1.steal : s1.skip;
+      t.classList.toggle('on', list.indexOf(t.dataset.label) !== -1);
+    });
+  }
+  picks.forEach(function (p) { p.addEventListener('click', function () { s1.direction = p.dataset.name; build1(); }); });
+  togs.forEach(function (t) {
+    t.addEventListener('click', function () {
+      var list = t.classList.contains('steal') ? s1.steal : s1.skip;
+      var i = list.indexOf(t.dataset.label);
+      if (i === -1) list.push(t.dataset.label); else list.splice(i, 1);
+      build1();
+    });
+  });
+  document.getElementById('copy-reply-1').addEventListener('click', function () { copyText(reply1.textContent, this); });
+  build1();
+
+  // ---- Block 2: empty state disables Copy ----
+  var boxes = [].slice.call(document.querySelectorAll('.res'));
+  var reply2 = document.getElementById('reply-2');
+  var copy2 = document.getElementById('copy-reply-2');
+  var current2 = '';
+
+  function build2() {
+    var picked = boxes.filter(function (b) { return b.checked; }).map(function (b) { return +b.dataset.n; }).sort(function (a, b) { return a - b; });
+    boxes.forEach(function (b) { b.closest('.opt').classList.toggle('checked', b.checked); });
+    document.getElementById('count-2').textContent = picked.length;
+    if (!picked.length) {
+      current2 = '';
+      reply2.textContent = 'Tick the ones that resonate. Your reply builds here.';
+      reply2.classList.add('empty');
+      copy2.disabled = true;
+    } else {
+      current2 = 'These resonate: ' + picked.map(function (n) { return '#' + n; }).join(', ') + '. Start with #' + picked[0] + '.';
+      reply2.textContent = current2;
+      reply2.classList.remove('empty');
+      copy2.disabled = false;
+    }
+  }
+  boxes.forEach(function (b) { b.addEventListener('change', build2); });
+  copy2.addEventListener('click', function () { if (current2) copyText(current2, this); });
+  build2();
+})();
+</script>
+</body>
+</html>

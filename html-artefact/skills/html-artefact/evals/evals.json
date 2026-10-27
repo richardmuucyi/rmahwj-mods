@@ -1,0 +1,414 @@
+{
+  "skill_name": "html-artefact",
+  "notes": "Cases 0-9 are kraft-look cases: their palette and no-Google-Fonts assertions apply only when the page is built in the kraft look (the user asks for it). Case 10 covers the default per-subject design and case 11 the kraft look on request. Every page is saved in the current folder unless the prompt names another. No harness renders these; they are checked by hand.",
+  "evals": [
+    {
+      "id": 0,
+      "name": "side-by-side-code-approaches",
+      "prompt": "Show me three different ways to implement retry logic for the payment-gateway call in our bakery's online-ordering C# client — fixed back-off, exponential back-off with jitter, and circuit breaker via Polly. Lay them out side by side as one HTML file with trade-offs called out (latency under load, blast radius if the payment gateway is down, observability), code snippets for each, and a recommendation at the end. Save it as `payment-retry-options.html`.",
+      "expected_output": "Single self-contained HTML matching recipe 01: eyebrow + H1 + prompt-box, three numbered approach blocks (large mono numeral + serif title), syntax-highlighted code per approach via hand-classed kw/fn/str/dim spans (no Prism), Pro/Con table per approach, 3-4 metric chips per approach, closing 'Recommendation' paragraph picking one approach with reasoning. Thariq palette, no external CSS / JS / fonts.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Output is exactly one .html file, `payment-retry-options.html`, in the current folder"
+        },
+        {
+          "text": "Contains zero external stylesheets — `<link rel=\"stylesheet\"` count is 0"
+        },
+        {
+          "text": "Contains zero external scripts — `<script src=` count is 0"
+        },
+        {
+          "text": "Contains zero Google Fonts links — `fonts.googleapis.com` count is 0"
+        },
+        {
+          "text": "Uses Thariq palette — contains `#FAF9F5` (--ivory) or `--ivory` variable AND `#D97757` (--clay) or `--clay` variable"
+        },
+        {
+          "text": "Contains exactly 3 numbered approach blocks (e.g. `class=\"approach\"` × 3, or three `<h2>` containing mono numerals 01/02/03)"
+        },
+        {
+          "text": "Contains a Pro/Con structure per approach (e.g. `class=\"tradeoffs\"`, `.pro`, `.con` selectors)"
+        },
+        {
+          "text": "Contains a closing 'Recommendation' section heading (case-insensitive match)"
+        },
+        {
+          "text": "Contains hand-classed syntax-highlight spans — at least one `class=\"kw\"`, `class=\"str\"`, or `class=\"fn\"`"
+        },
+        {
+          "text": "Contains `.prompt-box` element with the user's prompt quoted verbatim"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "name": "triage-board-cycle-planning",
+      "prompt": "Throwaway HTML triage board for our library lending app's next-sprint planning. Make me 4 columns — Now / Next / Later / Cut — and pre-load 20 made-up tickets across them (mix of barcode-scanner work, payment-provider integration for late fees, mobile app UI). Each ticket is a card I can drag between columns. Add a 'Copy as markdown' button at the top that exports the current ordering as a markdown checklist grouped by column.",
+      "expected_output": "Single self-contained HTML matching recipe 18: sticky toolbar with 'Copy as markdown' button, four columns (Now/Next/Later/Cut), 20 ticket cards, native HTML5 DnD between columns, state in JS array, clipboard with execCommand fallback + flash().",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Output is exactly one .html file"
+        },
+        {
+          "text": "Contains zero external stylesheets and zero external scripts"
+        },
+        {
+          "text": "Contains exactly 4 column drop-targets (Now / Next / Later / Cut — labels present in the DOM)"
+        },
+        {
+          "text": "Contains at least 20 ticket cards (count of card elements ≥ 20)"
+        },
+        {
+          "text": "Contains `draggable=\"true\"` attribute on at least 20 elements"
+        },
+        {
+          "text": "Contains a 'Copy as markdown' button (text or aria-label)"
+        },
+        {
+          "text": "JavaScript references `navigator.clipboard.writeText` (modern path)"
+        },
+        {
+          "text": "JavaScript references `document.execCommand` (fallback for file://)"
+        },
+        {
+          "text": "State held in a JS array/object (e.g. `const state =`, `let state =`, or `let tickets =`) — NOT read back from DOM via querySelector reading textContent"
+        },
+        {
+          "text": "Uses Thariq palette — clay (#D97757 or --clay) and at least one of olive (--olive) or oat (--oat) present"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "pr-writeup-for-reviewers",
+      "prompt": "I just finished PR #312 — refactoring our notification worker to use streaming with backpressure instead of buffering the whole batch. My reviewers haven't touched this code in 6 months. Generate an HTML PR writeup for them: explain the motivation, walk through the 4 changed files with the *why* for each, show before/after behaviour for the streaming logic, tell them exactly where to focus (the backpressure handling in `notify-worker.ts`), include a test plan and rollout steps. Save it as `pr-312-streaming-writeup.html`.",
+      "expected_output": "Single HTML matching recipe 17: repo line + PR title + author + .prompt-box; sticky-sidebar .toc with anchors; 'Why' section; 'File-by-file' .step blocks; 'Where to focus' .panel; 'Test plan' and 'Rollout' sections. Sticky TOC with smooth-scroll anchors. Palette discipline.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Output is exactly one .html file, `pr-312-streaming-writeup.html`, in the current folder"
+        },
+        {
+          "text": "Contains zero external stylesheets and zero external scripts"
+        },
+        {
+          "text": "Contains a sticky TOC element (`.toc` class with `position: sticky` in CSS)"
+        },
+        {
+          "text": "Contains anchor links for at least 4 of: #why, #tour (or #files), #focus, #tests (or #test-plan), #rollout"
+        },
+        {
+          "text": "Contains `.step` blocks (or equivalent file-by-file structure) covering exactly 4 files"
+        },
+        {
+          "text": "Contains a 'Where to focus' panel mentioning `notify-worker.ts` (verbatim)"
+        },
+        {
+          "text": "Contains 'Test plan' and 'Rollout' section headings"
+        },
+        {
+          "text": "CSS contains `scroll-behavior: smooth` for smooth-scroll anchors"
+        },
+        {
+          "text": "Uses Thariq palette — `--ivory` and `--clay` (or their hex equivalents) present"
+        },
+        {
+          "text": "Contains the PR number (312) and a branch arrow or similar PR-head metadata in the masthead"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "animation-sandbox",
+      "prompt": "Build me a sandbox to nail the 'task completed' micro-interaction in our app. When you check a task off, the row should: 1) check mark draws in over ~200ms, 2) text gets a line-through with a 1-frame delay, 3) row fades and collapses in height. Give me three easing presets to swap between (linear / smooth cubic-bezier / springy overshoot), and below the stage print the final CSS keyframes ready to paste into our codebase.",
+      "expected_output": "Single HTML matching recipe 07: eyebrow + H1 + intro; .stage with one fake task row that runs animation on click; three .ease-btn preset buttons with data-ease attributes; JS sets --ease CSS variable on :root from active button (CSS-variable-as-state-channel pattern); copy-paste CSS in a <pre> block. Inline SVG checkmark with stroke-dashoffset reveal.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Output is exactly one .html file"
+        },
+        {
+          "text": "Contains zero external stylesheets, zero external scripts, zero animation libraries (no `gsap`, `framer`, `lottie`, `motion.dev` in any string)"
+        },
+        {
+          "text": "Contains exactly 3 easing preset buttons (count of `.ease-btn` or equivalent, OR three buttons with `data-ease` attribute)"
+        },
+        {
+          "text": "Contains `cubic-bezier(0.16, 1, 0.3, 1)` (or close variant) for smooth preset AND `cubic-bezier(0.34, 1.56, 0.64, 1)` (or close variant) for springy preset"
+        },
+        {
+          "text": "CSS uses a `--ease` custom property (declared in `:root` or similar) AND JavaScript sets it via `document.documentElement.style.setProperty('--ease', ...)` or equivalent"
+        },
+        {
+          "text": "Contains an inline `<svg>` checkmark with a `stroke-dashoffset` property in CSS (the reveal-by-stroke pattern)"
+        },
+        {
+          "text": "Contains a click handler on the stage/task row that replays the animation"
+        },
+        {
+          "text": "Contains a `<pre>` block with the copy-paste-ready CSS keyframes"
+        },
+        {
+          "text": "Uses Thariq palette discipline — no off-palette hex colours beyond the known set"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "weekly-status-report",
+      "prompt": "Weekly status for the Larkspur Bakery ordering app — week of 2026-03-02. Highlights: the Crumb & Co. design studio handed over the new checkout screens on Tuesday; the Oven Rota team shipped scheduled pickups to all three shops; Fernhill Payments switched refunds to the new API, with 11 of 12 test cases green. Carryover: loyalty-card import still waiting on the old export file; gift-card balance check paused for a pricing decision. Small chart showing orders per day over the last 3 weeks (avg 212, 248, 231). Tags on carryover items showing why each slipped. Save it as `larkspur-status-2026-w10.html`.",
+      "expected_output": "Single HTML matching recipe 11: header + week + date range; 'Highlights' TL;DR callout; 'Shipped' bulleted list with .stat-card tiles; 'Velocity' .chart-panel with inline-SVG bar chart (3 <rect>); 'Carryover' list with coloured .carry-tag chips. No Chart.js.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Output is exactly one .html file, `larkspur-status-2026-w10.html`, in the current folder"
+        },
+        {
+          "text": "Contains zero external stylesheets, zero external scripts, zero chart libraries (no `chart.js`, `d3`, `recharts`, `chartist` in any string)"
+        },
+        {
+          "text": "Contains 'Highlights' (or TL;DR) section, 'Shipped' section, 'Velocity' section, 'Carryover' section — all four"
+        },
+        {
+          "text": "Contains an inline `<svg>` with exactly 3 `<rect>` elements representing the 3-week bar chart"
+        },
+        {
+          "text": "Contains the three team names verbatim: Crumb & Co., Oven Rota, Fernhill Payments (all three)"
+        },
+        {
+          "text": "Contains carryover tags using palette severity colours — at least one of `--olive`/`--clay`/`--oat`/`#788C5D`/`#D97757`/`#E3DACC`"
+        },
+        {
+          "text": "Contains the three weekly averages (212, 248, 231) somewhere in the document — either as text or as bar heights in the SVG"
+        },
+        {
+          "text": "Stat numbers rendered in serif (e.g. `font-family: var(--serif)` or `ui-serif` applied to stat-card numbers)"
+        },
+        {
+          "text": "Uses Thariq palette — `--ivory` and `--clay` present"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "prompt-tuner-editor",
+      "prompt": "I'm tuning a support-reply system prompt for our customer-service bot. The template uses three variables: {{customer_name}}, {{issue_summary}}, and {{tone}}. Build me a side-by-side HTML editor: left pane is a contenteditable where I write the template with the variable slots syntax-highlighted as clay pills; right pane has three live preview panels showing the filled template for three sample tickets (angry / confused / happy customer — make up reasonable fake data). 'Copy prompt' button at the top + a live character counter. The previews must re-render as I type without the caret jumping.",
+      "expected_output": "Single HTML matching recipe 20: sticky toolbar with title + char counter + 'Copy prompt' button; two-column layout; left = contenteditable editor with variable-slot highlighting; right = three .preview-panels showing filled template. Caret-preserving re-highlight on input/paste. Clipboard with execCommand fallback.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Output is exactly one .html file"
+        },
+        {
+          "text": "Contains zero external stylesheets, zero external scripts, zero rich-editor libraries (no `codemirror`, `monaco`, `quill`, `tiptap`, `prosemirror` in any string)"
+        },
+        {
+          "text": "Contains an element with `contenteditable=\"true\"` (or equivalent contenteditable attribute)"
+        },
+        {
+          "text": "Contains all three variable names: `{{customer_name}}`, `{{issue_summary}}`, `{{tone}}` (verbatim, including double-braces)"
+        },
+        {
+          "text": "Contains exactly 3 preview panels showing the filled template (count of `.preview-panel` or equivalent ≥ 3)"
+        },
+        {
+          "text": "Contains caret-preservation logic — a function or pattern that reads selection offset before re-rendering AND restores it after (look for `getRangeAt`, `setStart`, `cloneRange`, or a `getCaretOffset`/`setCaretOffset` helper)"
+        },
+        {
+          "text": "Contains a 'Copy prompt' button (text or aria-label) AND a live character counter element"
+        },
+        {
+          "text": "JavaScript references `navigator.clipboard.writeText` AND `document.execCommand` (both paths)"
+        },
+        {
+          "text": "Contains 3 distinct sample customer ticket data sets (angry / confused / happy or equivalent labels)"
+        },
+        {
+          "text": "Variable slot styling uses Thariq clay accent (--clay or #D97757) on the variable pills"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "one-sheet-reference",
+      "prompt": "Make me a one-sheet reference on ASD-STE100 from these facts and nothing else:\n- The current edition of ASD-STE100 (published January 2025) has 53 writing rules and a dictionary of approximately 900 approved words.\n- Write short sentences: no more than 20 words in instructions (procedures) and 25 words in descriptive texts.\n- Do not write more than six sentences in each paragraph; write only one topic per paragraph.\n- Write one instruction per sentence.\n- Do not write multi-word nouns that have more than three words.\n- Approved verb forms: the infinitive, the imperative, the simple present, the simple past, the simple future, and the past participle (only as an adjective).\n- Use the active voice. In descriptive writing, use the passive voice only when the agent is unknown.\n- Use vertical lists for complex text.\n- In 1983, after an investigation into controlled languages, AECMA decided to produce its own controlled English.\n- The AECMA Simplified English Guide (document PSC-85-16598) was released in 1985.\n- After the 2004 merger of AECMA with two other associations into ASD, the document was renamed ASD Simplified Technical English, Specification ASD-STE100.\n- Since 1986, STE has been a requirement of ATA Specification i2200.\nSource line: Wikipedia, Simplified Technical English. Draw it as an engineering-drawing sheet (a frame with zone marks, lettered panels, one drawing per kind of fact, a title block) in the kraft look, as one 1600 by 1000 pixel HTML page. Save it as `ste-sheet.html`.",
+      "expected_output": "Single self-contained HTML matching recipe 21: a frame with zone letters and numbers, four to six lettered panels each with a header bar, bars drawn to scale on a stated axis from zero, a check/cross table, a timeline, and a title block with Title, the given Source line and Sheet 1 of 1, in the kraft palette only.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Output is exactly one .html file with zero external stylesheets and zero external scripts"
+        },
+        {
+          "text": "The page is a fixed 1600px by 1000px canvas (html and body width 1600px, height 1000px, overflow hidden)"
+        },
+        {
+          "text": "A frame has zone letters (A to D) down the sides and zone numbers (1 to 8) along the top and bottom"
+        },
+        {
+          "text": "At least four panels, each with a header bar showing a panel letter and a short title"
+        },
+        {
+          "text": "At least one bar chart whose bar lengths are proportional to their values on a stated axis that starts at zero (bar length divided by value is the same within 5% for bars on one axis)"
+        },
+        {
+          "text": "A title block sits bottom-right with Title, Source and Sheet 1 of 1 only, and the Source reads 'Wikipedia, Simplified Technical English' (no other source)"
+        },
+        {
+          "text": "Every number, date and name on the page is in the fact list; only scale ticks and panel letters are exceptions"
+        },
+        {
+          "text": "Colours come from the kraft palette only; allowed marks are olive and not-allowed marks are clay (no red, no blue)"
+        },
+        {
+          "text": "At 1600 by 1000 no text is clipped or overlapped, and the title fits on at most two lines inside its own area (check a screenshot)"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "name": "blindspot-pass",
+      "prompt": "I'm adding a new export format to Acme's report service but I've never touched it. Do a blindspot pass using only these facts: find my unknown unknowns, explain each one, and tell me how to prompt you better for the change.\n- Exports run through ExportRouter.dispatch(), which looks formats up in registry.py.\n- The CSV exporter bypasses the router and is called directly from the UI layer.\n- An earlier PDF exporter was reverted in PR 2841 because it blocked the request thread for over 30 seconds.\n- Output files are written to /exports and a nightly job deletes them after 7 days.\n- Exporters must return bytes, not strings; the router base64-encodes them.\n- The feature flag export.async is on in staging and off in production.\nSave it as `blindspot-export.html`.",
+      "expected_output": "Single self-contained HTML matching recipe 22: a prompt card with a Copy prompt button, a frame bar saying the page was built from the six given facts, an asked-vs-reality pair, a stat strip, blindspot cards that each state a surprise with evidence tied to a given fact, include checkboxes and copy chips, a section on what the pass could not check, and an assembled prompt that changes when cards are ticked.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Output is exactly one .html file and scripts/audit.sh exits 0 on it"
+        },
+        {
+          "text": "A prompt card shows the user's prompt verbatim and its Copy prompt button puts exactly that text on the clipboard"
+        },
+        {
+          "text": "A frame bar says what the page was built from and names the six supplied facts; it states no file, commit or line counts beyond them"
+        },
+        {
+          "text": "At least five cards; each title states a surprise as a sentence (not a bare topic) and each card names which supplied fact is its evidence"
+        },
+        {
+          "text": "Every card has an include checkbox and a copy chip; ticking two cards adds both of their constraints to the assembled prompt, unticking removes them, and Copy yields the assembled text"
+        },
+        {
+          "text": "A 'could not check' section exists and is not empty"
+        },
+        {
+          "text": "No claim in the page lacks support in the six facts (no invented file names, line numbers or counts)"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "name": "interview-weekly-digest",
+      "prompt": "Interview me one question at a time about a `weekly digest` feature that emails my team what changed in our wiki this week. Prioritize questions where my answer would change the architecture. Use only these facts:\n- The wiki has about 1,200 pages and roughly 60 change in a normal week.\n- Changes are stored as page revisions with an author and a timestamp.\n- Email goes through the existing notify service, which accepts at most 500 recipients per call.\n- Teams are defined in a separate directory service.\n- Some pages are private to one team.\n- No digest exists today.\nSave it as `interview-digest.html`.",
+      "expected_output": "Single self-contained HTML matching recipe 23: a prompt card, a progress rail tagged by blast radius, one question visible at a time with 2-4 option cards that each carry a trade-off sentence, a lean with a confidence, skip and back controls, and a summary with a decisions table and a Copy brief button whose text carries every decision and the next instruction.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Output is exactly one .html file and scripts/audit.sh exits 0 on it"
+        },
+        {
+          "text": "Only one question is visible at a time; between six and nine questions in total, each tagged architecture, data, UX or polish"
+        },
+        {
+          "text": "The first question is an architecture-level choice (for example who sends, when it runs, or where team membership comes from)"
+        },
+        {
+          "text": "Every question has two to four options, each with a trade-off sentence, and a stated lean with a confidence"
+        },
+        {
+          "text": "One question deals with private pages, which the facts make a real constraint"
+        },
+        {
+          "text": "Clicking an option advances to the next question; Back returns; skip records the lean"
+        },
+        {
+          "text": "Answering every question reaches a summary with a decisions table, and Copy brief puts text on the clipboard that contains every chosen option and ends with a next instruction"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "name": "change-quiz-retry-move",
+      "prompt": "I want to understand a change before I merge it. Give me an HTML report on it with a quiz at the bottom that I must pass. Use only these facts about the change:\n- Retry logic moves from the client to the server.\n- The client used to retry 3 times with a 1 second backoff. It now never retries.\n- The server retries up to 5 times with exponential backoff, starting at 200 ms and capped at 5 s.\n- Retries now apply to HTTP 429 and 503 only. Before, they applied to any 5xx.\n- A new response header, X-Retry-Count, reports how many retries happened.\n- 4 files changed: client.py, server.py, test_retry.py, README.md. There are 2 new tests.\n- Git says this commit is already an ancestor of main.\nSave it as `quiz-retry.html`.",
+      "expected_output": "Single self-contained HTML matching recipe 24: a check-first callout that says the commit is already in main, a verdict first, stat tiles, a before/after mental model, non-obvious behaviours with ids, a proven-versus-claimed section, six to eight scenario questions with shuffled options, and a pass path and a fail path that both end in a reply to paste.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Output is exactly one .html file and scripts/audit.sh exits 0 on it"
+        },
+        {
+          "text": "A callout near the top says the change is already in main, before any explanation"
+        },
+        {
+          "text": "A verdict of about three points appears before the context, and the stat tiles match the facts (4 files, 2 new tests)"
+        },
+        {
+          "text": "Six to eight questions ask about consequences in a scenario (for example what a client sees on a 500 response), not recall"
+        },
+        {
+          "text": "Retry rebuilds the quiz with the options in a different order"
+        },
+        {
+          "text": "Answering every question correctly shows a Cleared box and a reply to paste; answering wrongly shows a Not yet box whose re-read links all point at elements that exist"
+        },
+        {
+          "text": "The fail reply names the missed questions and asks for those only"
+        },
+        {
+          "text": "A running score counter shown from the start is not the result: the Cleared or Not yet box is hidden until every question is answered"
+        }
+      ]
+    },
+    {
+      "id": "10",
+      "name": "default-design-status-page",
+      "prompt": "/html-artefact A status page for the four tide-gauge sensors at the Marina pier: each sensor's last reading in metres, its battery percentage, and whether it has reported in the last 15 minutes. I will check it on my phone at the pier.",
+      "expected_output": "One .html file, designed for this subject (tide, metres, pier), not in the kraft-and-clay look; light and dark themes; usable at 400 px; a name-style title; audit exits 0.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "`<title>` is a name of 2 to 4 words with no dash or colon explainer (e.g. 'Marina Pier Gauges')"
+        },
+        {
+          "text": "Has a viewport meta and a `:root` block of 4 to 6 colour tokens plus font tokens, with a one-line layout comment above them"
+        },
+        {
+          "text": "Dark theme exists: `@media (prefers-color-scheme: dark)` guarded with `:root:not([data-theme=\"light\"])` AND a `:root[data-theme=\"dark\"]` block; `body` sets a token background"
+        },
+        {
+          "text": "Does NOT use both `#FAF9F5` and `#D97757` (the kraft look) and has no purple-to-blue gradient hero or emoji section markers"
+        },
+        {
+          "text": "Status is shown as pill/chip/stripe as well as numbers; the reading, battery and last-seen are in tabular numerals; sensors are marked as example data"
+        },
+        {
+          "text": "At 400 px wide the page has no horizontal scroll and a 16 px side gutter; no `100vh` hero"
+        },
+        {
+          "text": "`bash scripts/audit.sh <page>` (path relative to the skill folder) exits 0; any Google Fonts link has a fallback stack"
+        }
+      ]
+    },
+    {
+      "id": "11",
+      "name": "kraft-look-on-request",
+      "prompt": "/html-artefact in the kraft look: a one-page comparison of three ways to rotate the Marina pier logs (cron, logrotate, a sidecar). Keep it like the older pages.",
+      "expected_output": "One .html file in the kraft look: ivory page, clay accent, serif headings, no webfonts, no CDN, opens from disk; audit with --kraft-look exits 0.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Contains `--ivory`/`#FAF9F5` and `--clay`/`#D97757`; headings use `ui-serif`"
+        },
+        {
+          "text": "Zero `<link rel=\"stylesheet\"`, zero `<script src=`, zero `fonts.googleapis.com`"
+        },
+        {
+          "text": "`bash scripts/audit.sh <page> --kraft-look` exits 0 with no palette warning"
+        },
+        {
+          "text": "Still has a name-style `<title>` and a viewport meta"
+        }
+      ]
+    }
+  ]
+}

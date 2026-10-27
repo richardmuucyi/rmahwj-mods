@@ -1,0 +1,45 @@
+{
+  "seeded": {
+    "must_catch": [
+      {
+        "id": "E1 clone claim needs the GitHub App condition",
+        "where": [
+          "critical",
+          "semantic_mismatches"
+        ],
+        "all": [
+          "(?i)github app|bundle"
+        ]
+      },
+      {
+        "id": "E2 clone fact cites the routines table",
+        "where": [
+          "critical",
+          "polish",
+          "semantic_mismatches"
+        ],
+        "all": [
+          "(?i)scheduled[- ]tasks|routines"
+        ]
+      },
+      {
+        "id": "E3 conflict note misses the PR conflict",
+        "where": [
+          "critical",
+          "polish",
+          "semantic_mismatches"
+        ],
+        "all": [
+          "(?i)conflict",
+          "(?i)rebase|\\bA3\\b"
+        ]
+      }
+    ]
+  },
+  "clean": {
+    "must_be_empty": [
+      "critical",
+      "semantic_mismatches"
+    ]
+  }
+}

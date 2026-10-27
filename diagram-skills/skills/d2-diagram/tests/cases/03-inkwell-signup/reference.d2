@@ -1,0 +1,41 @@
+# L3 -- classes carry the palette, so a restyle is a four-line edit rather than a
+# find-and-replace across every shape. The failure path is a styled EDGE class, which
+# is how a diagram shows an exception without adding a second diagram.
+direction: down
+
+classes: {
+  happy: {
+    style: {
+      fill: "#E8F5E9"
+      stroke: "#2E7D32"
+    }
+  }
+  bad: {
+    style: {
+      stroke: "#C0392B"
+      stroke-dash: 3
+    }
+  }
+  store: {
+    shape: cylinder
+    style.fill: "#E3F2FD"
+  }
+}
+
+dev: Developer {shape: image; icon: ../../../assets/icons/people/actor-outline.svg; width: 54; height: 54}
+web: Signup form
+api: Auth API
+db: Users table {class: store}
+mail: Email service
+verify: Verify link clicked? {shape: diamond}
+active: Account active {class: happy}
+bounce: Signup rejected
+
+dev -> web: fills in email
+web -> api: POST /signup
+api -> db: insert pending user
+api -> mail: send verification
+mail -> verify
+verify -> active: yes
+verify -> bounce: token expired {class: bad}
+api -> bounce: duplicate email {class: bad}

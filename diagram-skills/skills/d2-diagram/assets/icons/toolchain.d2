@@ -1,0 +1,85 @@
+# Local logo files as icons.
+# A relative path is resolved against THIS file, so the logos are copied in beside it --
+# a long ../../.. path into a shared logo folder breaks silently the moment that folder
+# is reorganised. A local icon also cannot 403.
+#
+# THE SIZING RULE: d2 sizes a node to fit its LABEL, then centres the icon in whatever
+# space is left. On a node sized to its label that is nothing, and the icon is drawn on
+# top of the text. Every icon-bearing node here carries explicit width/height.
+# `icon.near: top-left` does not fix it -- it makes it worse.
+direction: right
+
+classes: {
+  tool: {
+    width: 190
+    height: 165
+    style: {
+      fill: "#FFFFFF"
+      stroke: "#C7D2E5"
+      border-radius: 10
+    }
+  }
+  zone: {
+    style: {
+      fill: "#F5F8FD"
+      stroke: "#AFC0DA"
+    }
+  }
+  ai: {
+    style: {
+      stroke: "#6A4FBF"
+      stroke-dash: 3
+    }
+  }
+}
+
+title: Developer toolchain -- icons from local logo files {
+  shape: text
+  near: top-center
+  style: {
+    font-size: 24
+    bold: true
+  }
+}
+
+desk: At the desk {
+  class: zone
+  mac: Laptop {
+    class: tool
+    icon: ./logos/apple-logo.svg
+  }
+  editor: VS Code {
+    class: tool
+    icon: ./logos/vscode-logo.svg
+  }
+}
+
+remotes: Remotes {
+  class: zone
+  gh: "GitHub\nrepos" {
+    class: tool
+    icon: ./logos/github-mark.svg
+  }
+  gl: "GitLab\nrepos" {
+    class: tool
+    icon: ./logos/gitlab-tanuki.svg
+  }
+}
+
+assistants: Assistants {
+  class: zone
+  copilot: Copilot {
+    class: tool
+    icon: ./logos/copilot-logo.svg
+  }
+  gemini: Gemini {
+    class: tool
+    icon: ./logos/gemini-logo.svg
+  }
+}
+
+desk.mac -> desk.editor: writes notes and code
+desk.editor -> remotes.gh: git push
+desk.editor -> remotes.gl: git push
+assistants.copilot -> desk.editor: suggestions {class: ai}
+assistants.gemini -> desk.editor: suggestions {class: ai}

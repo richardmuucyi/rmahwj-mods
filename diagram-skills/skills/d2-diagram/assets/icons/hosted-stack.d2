@@ -1,0 +1,95 @@
+# Hosted icons from icons.terrastruct.com.
+# ILLUSTRATIVE reference stack -- it demonstrates icon usage, it is not a claim about
+# any particular project's real technology choices.
+#
+# Two things to know about hosted icons:
+#   1. Much of the set 403s, and a dead URL renders as a SILENTLY MISSING icon -- no
+#      error, exit 0. Every URL below was HEAD-checked before use.
+#   2. --bundle defaults to true, so each icon is fetched at RENDER time and inlined
+#      into the SVG as a data URI. The output keeps working after the URLs rot, but the
+#      render itself needs the network.
+direction: down
+
+classes: {
+  node: {
+    width: 185
+    height: 160
+    style: {
+      fill: "#FFFFFF"
+      stroke: "#C7D2E5"
+      border-radius: 10
+    }
+  }
+  tier: {
+    style: {
+      fill: "#F5F8FD"
+      stroke: "#AFC0DA"
+    }
+  }
+  cache: {
+    style: {
+      stroke: "#B26B00"
+      stroke-dash: 4
+    }
+  }
+}
+
+title: Reference web-app stack -- hosted icon set {
+  shape: text
+  near: top-center
+  style: {
+    font-size: 24
+    bold: true
+  }
+}
+
+edge: Edge {
+  class: tier
+  proxy: nginx {
+    class: node
+    icon: https://icons.terrastruct.com/dev%2Fnginx.svg
+  }
+}
+
+app: Application {
+  class: tier
+  web: React SPA {
+    class: node
+    icon: https://icons.terrastruct.com/dev%2Freact.svg
+  }
+  api: Python API {
+    class: node
+    icon: https://icons.terrastruct.com/dev%2Fpython.svg
+  }
+  worker: Go worker {
+    class: node
+    icon: https://icons.terrastruct.com/dev%2Fgo.svg
+  }
+}
+
+data: Data {
+  class: tier
+  pg: PostgreSQL {
+    class: node
+    icon: https://icons.terrastruct.com/dev%2Fpostgresql.svg
+  }
+  redis: Redis {
+    class: node
+    icon: https://icons.terrastruct.com/dev%2Fredis.svg
+  }
+}
+
+runtime: Docker {
+  class: node
+  icon: https://icons.terrastruct.com/dev%2Fdocker.svg
+}
+
+edge.proxy -> app.web: serves the bundle
+edge.proxy -> app.api: "/api proxy pass"
+app.web -> app.api: fetch and SSE
+app.api -> data.pg: reads and writes
+app.api -> data.redis: sessions {class: cache}
+app.api -> app.worker: enqueues job
+app.worker -> data.pg: writes result
+runtime -> edge.proxy: hosts
+runtime -> app: hosts

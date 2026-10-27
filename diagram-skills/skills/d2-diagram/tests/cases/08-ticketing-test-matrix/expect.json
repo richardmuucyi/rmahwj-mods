@@ -1,0 +1,28 @@
+{
+  "complexity": 8,
+  "scenario": "Ticket booking test status matrix",
+  "teaches": "grid-rows declared FIRST for a row-major table; grid-gap 0 for a solid table",
+  "expected_type": "grid",
+  "type_alternatives": [
+    "markdown table in a single shape"
+  ],
+  "vectors_offered": [
+    "grid",
+    "classes",
+    "cell-status-colour"
+  ],
+  "compile": true,
+  "shapes": 17,
+  "edges": 0,
+  "_shapes_note": "16 cells + the container. A grid cell is a full shape in the inventory.",
+  "must_contain_shapes": [
+    "matrix",
+    "matrix.h1",
+    "matrix.r3c4"
+  ],
+  "must_contain_text": [
+    "Payment declined",
+    "Sold-out event"
+  ],
+  "max_aspect": 6.0
+}

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800"
+     width="100%" height="100%" preserveAspectRatio="xMidYMid meet"
+     role="img" aria-labelledby="title desc">
+
+  <title id="title">Google Gemini</title>
+  <desc id="desc">The Google Gemini mark: a four-pointed star with concave sides, filled with the Gemini blue-to-purple gradient.</desc>
+
+  <!-- PROVENANCE - this file is a deliberate composite of two official Google assets:
+       * GEOMETRY: the star path from gemini.google.com's product mark
+         (gemini_sparkle_aurora, viewBox 0 0 192 192). In Google's own file that path
+         is only a <clipPath> over an embedded base64 JPEG, so the shipped asset is
+         not pure vector; the path itself is.
+       * GRADIENT: Google's Gemini vector gradient, from the ai.google.dev sparkle
+         (#217BFE -> #078EFB -> #A190FF -> #BD99FE), with its coordinates mapped from
+         that icon's 17-unit space into this 192-unit space.
+       The ai.google.dev icon uses a THINNER star; its geometry is NOT used here.
+       Verified: silhouette matches Google's aurora asset pixel-for-pixel. -->
+
+  <defs>
+    <linearGradient id="gemini-gradient" gradientUnits="userSpaceOnUse"
+                    x1="62.7730" y1="121.7651" x2="142.3876" y2="54.6395">
+      <stop offset="0"    stop-color="#217BFE"/>
+      <stop offset=".27"  stop-color="#078EFB"/>
+      <stop offset=".777" stop-color="#A190FF"/>
+      <stop offset="1"    stop-color="#BD99FE"/>
+    </linearGradient>
+  </defs>
+
+  <g id="gemini-sparkle" transform="translate(72.7273,72.7273) scale(3.409091)">
+    <path id="sparkle-star" d="M164.93 86.68c-13.56-5.84-25.42-13.84-35.6-24.01-10.17-10.17-18.18-22.04-24.01-35.6-2.23-5.19-4.04-10.54-5.42-16.02C99.45 9.26 97.85 8 96 8s-3.45 1.26-3.9 3.05c-1.38 5.48-3.18 10.81-5.42 16.02-5.84 13.56-13.84 25.43-24.01 35.6-10.17 10.16-22.04 18.17-35.6 24.01-5.19 2.23-10.54 4.04-16.02 5.42C9.26 92.55 8 94.15 8 96s1.26 3.45 3.05 3.9c5.48 1.38 10.81 3.18 16.02 5.42 13.56 5.84 25.42 13.84 35.6 24.01 10.17 10.17 18.18 22.04 24.01 35.6 2.24 5.2 4.04 10.54 5.42 16.02A4.03 4.03 0 0 0 96 184c1.85 0 3.45-1.26 3.9-3.05 1.38-5.48 3.18-10.81 5.42-16.02 5.84-13.56 13.84-25.42 24.01-35.6 10.17-10.17 22.04-18.18 35.6-24.01 5.2-2.24 10.54-4.04 16.02-5.42A4.03 4.03 0 0 0 184 96c0-1.85-1.26-3.45-3.05-3.9-5.48-1.38-10.81-3.18-16.02-5.42" fill="url(#gemini-gradient)"/>
+  </g>
+</svg>

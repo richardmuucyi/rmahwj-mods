@@ -1,0 +1,65 @@
+# L10 -- the full composition stack: `layers` for the C4 level hierarchy, cross-board
+# `link:` so a reader clicks down through the levels, actor icons, and theme 303 pinned
+# in the file so the intended rendering travels with the diagram.
+# `layers` inherits NOTHING -- each board is a fresh level of abstraction. That is the
+# difference from `scenarios`, and it is why the container board redeclares its nodes.
+vars: {
+  d2-config: {
+    theme-id: 303
+    layout-engine: elk
+  }
+}
+
+title: City library lending -- C4 Context {
+  shape: text
+  near: top-center
+  style.font-size: 28
+}
+
+member: Member {shape: image; icon: ../../../assets/icons/people/actor-outline.svg; width: 54; height: 54}
+librarian: Librarian {shape: image; icon: ../../../assets/icons/people/actor-outline.svg; width: 54; height: 54}
+
+lending: Lending system {
+  link: layers.container
+}
+catalogue: Book catalogue {shape: cloud}
+payments: Payment provider {shape: cloud}
+
+member -> lending: borrows and renews
+librarian -> lending: manages loans
+lending -> catalogue: title lookup
+lending -> payments: late fees
+
+layers: {
+  container: {
+    title: Lending system -- C4 Container {
+      shape: text
+      near: top-center
+      style.font-size: 28
+    }
+
+    api: Lending API
+    apps: Member apps
+    store: Loan store {shape: cylinder}
+
+    apps -> api: borrow request
+    api -> store: write loan
+
+    api.link: layers.component
+  }
+
+  component: {
+    title: Lending API -- C4 Component {
+      shape: text
+      near: top-center
+      style.font-size: 28
+    }
+
+    rest: REST API
+    rules: Loan rules engine
+    catalogue: Catalogue client
+
+    rest -> rules: evaluate
+    rules -> catalogue: check
+  }
+}

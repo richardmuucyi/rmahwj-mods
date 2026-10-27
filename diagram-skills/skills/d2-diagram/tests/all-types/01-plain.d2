@@ -1,0 +1,17 @@
+vars: { d2-config: { theme-id: 0; dark-theme-id: 200; pad: 40 } }
+classes: {
+  # zone from references/aesthetics.md, minus its font-color: a hex colour does not switch
+  # under dark-theme-id, and #4b5563 is unreadable on the dark canvas. The theme colours it.
+  zone: { style: { fill: transparent; stroke: "#8794a6"; stroke-dash: 5; font-size: 13 } }
+}
+direction: right
+title: "Shortening a link" { shape: text; near: top-center; style.font-size: 20 }
+user: someone shortening { shape: image; icon: ./actor-outline.svg; width: 54; height: 54 }
+svc: Link service {
+  class: zone
+  api: API layer
+  store: link store { shape: cylinder }
+  api -> store: saves the link
+}
+user -> svc.api: long URL
+svc.api -> user: bit.ly/xyz

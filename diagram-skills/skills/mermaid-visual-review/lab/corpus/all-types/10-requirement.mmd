@@ -1,0 +1,11 @@
+requirementDiagram
+  requirement fast_redirect {
+    id: 1
+    text: redirect must not wait for analytics
+    risk: high
+    verifymethod: test
+  }
+  element decode_service {
+    type: service
+  }
+  decode_service - satisfies -> fast_redirect
