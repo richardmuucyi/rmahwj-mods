@@ -56,6 +56,18 @@ Run these from the skill's folder. `STAGE` is the folder that `stage` prints.
 
 `apply` refuses when the real file changed after staging, and it backs up each file it replaces.
 
+**Finding lessons that wait too long.** Capture is easy, so lessons pile up and nobody promotes them. `scripts/ripe_learnings.py` is the sweep for that queue. Run it once a month, for example:
+
+```
+python scripts/ripe_learnings.py
+python scripts/ripe_learnings.py --root path/to/project --json
+```
+
+- It lists lessons graded `corroborated` or `mechanical-fact` that have waited 30 days or more (`--days N` changes that).
+- It also reports promoted lessons that hold several findings (one may not have landed), lessons with no confidence grade, and log lines that name no lesson.
+- It only reads. It never edits a skill, and it never decides that a lesson should be promoted.
+- By default it walks up from its own folder to the first folder that holds `.claude/skills`. Installed as a plugin, that is your home folder, so it scans `~/.claude/skills`. For a project's skills, pass `--root` with the project folder.
+
 ## Install
 
 ```
@@ -74,12 +86,12 @@ Run these from the skill's folder. `STAGE` is the folder that `stage` prints.
 - Web search and subagents in your Claude Code session. It has no scripts.
 
 **self-improving-skills**
-- Python 3. The staging script uses the standard library only.
+- Python 3. Both scripts use the standard library only.
 - On Windows it links sibling skills with a directory junction (`mklink /J`), which needs no admin rights. On macOS and Linux it uses a symlink.
 
 ## What the skills write
 
-`ebook-to-skill` writes the new skill to `.claude/skills/<slug>/` and scratch files to a folder you name. `skill-uplift` edits only the target skill's folder, and only after you approve. `self-improving-skills` writes lessons and the log inside the target skill's folder, and stages copies in your temp folder (`skill-stage/`). It changes the real skill only on `apply`, after you approve. None of them uploads your skills anywhere. `skill-uplift` sends research questions to web search.
+`ebook-to-skill` writes the new skill to `.claude/skills/<slug>/` and scratch files to a folder you name. `skill-uplift` edits only the target skill's folder, and only after you approve. `self-improving-skills` writes lessons and the log inside the target skill's folder, and stages copies in your temp folder (`skill-stage/`). Its sweep, `ripe_learnings.py`, writes nothing: it prints a report. It changes the real skill only on `apply`, after you approve. None of them uploads your skills anywhere. `skill-uplift` sends research questions to web search.
 
 ## Read this first
 
@@ -90,5 +102,5 @@ Developed on Windows 11 with Claude Code 2.1.312. Not yet tested as an installed
 ## Tests
 
 - `ebook-to-skill`: run `python scripts/audit_skill.py .` from its folder. It audits the skill itself and should report 0 FAIL.
-- `self-improving-skills`: run `python evals/test_stage_skill_change.py` from its folder. It runs offline and prints `ok` when it passes.
+- `self-improving-skills`: run `python evals/test_stage_skill_change.py` and `python evals/test_ripe_learnings.py` from its folder. Both run offline. The first prints `ok` and the second `PASS` when they pass.
 - `skill-uplift`: no automated tests. `_evals.md` holds trigger and behaviour cases for a person to run and judge.
