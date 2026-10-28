@@ -24,6 +24,13 @@ Add `!` right after the mode: `++!`, `++g!`, `++l!`, `++d!`, `++p!`.
 
 Use it when the job is big or the request is thin. For a quick job, the plain mode is faster.
 
+## Critics run as fresh subagents
+
+Since 0.11.0 the critics review the work with a clean context, never the author's notes or reasons:
+
+- `++panel`: after the work is written, each of the two critics runs as its own subagent on the finished text, with only your request and its own methods. The work ends with a `critics` block, and the card warns when one is missing.
+- `++deep`: before the reply, a subagent checks the rewrite against your request for new outputs, invented limits and self-run proofs. Its result is the `critic:` line on the card.
+
 ## Install
 
 ```
