@@ -56,6 +56,7 @@ const PARTS: Record<Kind, { label: string; icon: string; required: boolean; miss
     { label: 'raw', icon: '🧱', required: true, missing: 'no raw material named' },
     { label: 'methods', icon: '🛠', required: true, missing: 'no methods or tools named' },
     { label: 'proof', icon: '🔍', required: true, missing: 'no outside check named' },
+    { label: 'critic', icon: '🧐', required: true, missing: 'no critic subagent review' },
   ],
   // a panel's rows are its experts, read by parsePanel, not labelled parts
   panel: [],
@@ -78,6 +79,7 @@ const NAMES: Record<string, string> = {
   raw: 'Start from',
   methods: 'Methods',
   proof: 'Proof',
+  critic: 'Critic',
 }
 
 const CHECK_FIRST = (what: string) =>
@@ -145,6 +147,14 @@ stop: …
 never: … (or "none")`
 
 /**
+ * 0.11.0 (the owner's ask, 2026-10-28): the rewrite is reviewed by a fresh critic subagent before it is shown, so
+ * the author never grades its own rewrite. It sees only the request and the rewrite, never the four answers or the
+ * author's reasons, and looks for the drift the 2026-10-24/25 evals found: new outputs, invented limits, unchecked
+ * steps, self-run proofs, and checks that contradict the plan (salt left off a list that must hold every item).
+ */
+const DEEP_CRITIC =
+  `Before you reply, give a fresh subagent only my request, word for word, and your rewritten prompt: never your four answers, your notes or your reasons. Have it list, each with a short quote from the rewrite, where the rewrite drifts from my request: a new deliverable or kind of output, a limit or fact I never gave, a step that assumes something you marked "(unchecked)", a proof only you or I would run, or a check that contradicts another step. Fix each finding that is real, and never mark one fixed that you did not change. Then write the critic's line: "critic: <how many findings>, <what you changed>", or "critic: none found".`
+/**
  * "Deeper, not bigger": what a top professional would do, start from, use, and let prove the
  * result, then my prompt rewritten to ask for exactly that. The four questions are the owner's
  * (2026-10-19); the rest makes the answers concrete enough to act on and keeps the size.
@@ -158,11 +168,13 @@ const DEEPEN = `I want a deeper version of my request above, not a bigger one. D
    (4) what, other than you or me, would show the result is right: a test, a measurement, a known answer to compare with, or a person who is neither of us. Never "you review it" or a taste word ("looks good", "polished").
    Read a file before you say what it holds. Name only a path, command or commit you have checked exists; mark anything you could not check "(unchecked)".
 3. Then rewrite my prompt to ask for exactly that. Same deliverable and about the same amount of work: add the raw material, the methods and the proof as steps, add no new deliverables, and keep my own words where they work. Every step serves my one deliverable (finds its material, makes it, or checks it); a second result is a new deliverable even as a last step: a further report, an audit of something else, a new script. Add no new kind of output either: a table, score sheet, breakdown or analysis my request does not name is a new deliverable. The proof checks the result; its numbers are not added to what I get unless I asked for them. Anything you marked "(unchecked)" goes into the rewrite as a check-first step with a fallback ("first confirm X exists; if it does not, do Y instead"), never as a plain step that assumes it. Under ${DEEP_WORDS} words, or ${DEEP_WORDS_ASKED} when you asked me questions first: the extra is only for my answers.
-4. Reply with the four answers in a fenced code block tagged deep, one line each:
+4. ${DEEP_CRITIC}
+5. Reply with the four answers and the critic's line in a fenced code block tagged deep, one line each:
 pro: …
 raw: …
 methods: …
 proof: …
+critic: …
 then the rewritten prompt alone in a fenced code block tagged prompt.`
 
 /**
@@ -185,6 +197,13 @@ const TRACE_RULE =
  * person's line quotes the request, "the owner" and "Claude" name who runs it, and the work ends with
  * a trace back to the request.
  */
+/**
+ * 0.11.0 (the owner's ask, 2026-10-28): the two critics run as fresh subagents, not as the author checking its own
+ * work. Each gets only the request, its own field and methods, and the finished text, never the author's notes or
+ * the other critic's findings. A critics block lets the card see whether they reported.
+ */
+const PANEL_CRITICS =
+  "Run each of the two critics as its own fresh subagent, after the final text is written: give it only my request, word for word, its field and methods from the panel, and the finished text, never your notes, your reasoning or the other critic's findings. Have it run its methods on that text where it can and report each fault with a short quote. Fix each fault that is real, and never mark one fixed that you did not change. End with the critics' results in a fenced code block tagged critics, one row per critic: <field> | <faults found> | <what you changed>."
 const PANEL = `Before you start on my request above, pick the five experts from different fields who would make this outstanding, including two whose job is to find what's wrong with it. For each one, tell me what they would actually do and which methods they would use. Do not start the work in this turn; wait for my go-ahead or my corrections.
 - If a choice must be settled before the work (which tools I will use, a fixed time, a budget), ask me with AskUserQuestion before you write the panel. The panel reply itself asks nothing: the card shows only the panel.
 - Name each by field, not as an invented person: no personas, voices or quotes.
@@ -195,7 +214,7 @@ Technical writer: turns each task into numbered steps a new hire can follow; met
 Usability tester (critic): watches two people follow it cold and notes where they stall; methods: think-aloud test, task success rate; nearest step: a fresh subagent follows it; cannot measure: where a person gets lost
 Done when, new hire ("<my words about new hires>"): they can say what the product is for and finish the first task from the guide alone; test: they follow it cold and explain it back, run by the owner
 Done when, agent: a fresh agent finishes the same task from the guide alone; test: cold-start run, run by Claude; cannot measure: whether a person understands it
-- When I say go, do the work. Don't role-play them, use their methods. Run each method with your tools where you can, and show its real result (its output, a count, a quote); if a method cannot run here, say so in one line rather than describe a result. Where a method ran as its nearest step, report the result as that step's and repeat what it cannot measure beside it; never present it as the original method's result. If a search finds nothing, widen it before you say a file does not exist. Give my request, word for word, to every subagent you use. Run the two critics' methods after the final text is written, on that text, not only on the plan or a first draft; judge it against my request, and report what they found and what you changed. Before you finish, run each done-when test you can, report pass or fail with its result, and list each one you could not run and who must run it. ${TRACE_RULE} Keep the deliverable I asked for: the panel changes how the work is done, not what it is.`
+- When I say go, do the work. Don't role-play them, use their methods. Run each method with your tools where you can, and show its real result (its output, a count, a quote); if a method cannot run here, say so in one line rather than describe a result. Where a method ran as its nearest step, report the result as that step's and repeat what it cannot measure beside it; never present it as the original method's result. If a search finds nothing, widen it before you say a file does not exist. Give my request, word for word, to every subagent you use. ${PANEL_CRITICS} The critics judge the final text against my request, not the plan or a first draft. Before you finish, run each done-when test you can, report pass or fail with its result, and list each one you could not run and who must run it. ${TRACE_RULE} Keep the deliverable I asked for: the panel changes how the work is done, not what it is.`
 
 /**
  * What ▶ Go sends. A prompt this mod submits skips its own hook, so the work rules travel in the
@@ -205,7 +224,7 @@ Done when, agent: a fresh agent finishes the same task from the guide alone; tes
  * hence the widen-the-search line. The nearest-step and done-when lines: see PANEL (2026-10-21).
  */
 const PANEL_GO_RULES =
-  "Go ahead with the panel above: do the work with their methods, not their voices. Run each method with your tools where you can, and show its real result (its output, a count, a quote); if one cannot run here, say so in one line rather than describe a result. Where a method ran as its nearest step, report the result as that step's and repeat what it cannot measure. If a search finds nothing, widen it before you say a file does not exist. Where the panel left a choice open, take the safest option and name it. Run the two critics' methods after the final text is written, on that text, and report what they found and what you changed. Before you finish, run each done-when test you can, report pass or fail with its result, and list each one you could not run and who must run it."
+  "Go ahead with the panel above: do the work with their methods, not their voices. Run each method with your tools where you can, and show its real result (its output, a count, a quote); if one cannot run here, say so in one line rather than describe a result. Where a method ran as its nearest step, report the result as that step's and repeat what it cannot measure. If a search finds nothing, widen it before you say a file does not exist. Where the panel left a choice open, take the safest option and name it. " + PANEL_CRITICS + " Before you finish, run each done-when test you can, report pass or fail with its result, and list each one you could not run and who must run it."
 /**
  * ▶ Go with your request word for word (2026-10-21, the reviewer's top fix): the work, its subagents
  * and its critics are all held to what you asked, not to the panel's paraphrase of it.
@@ -274,6 +293,17 @@ function traceVerdict(answer: string, needs: readonly Need[]): string | null {
   if (bad > 0) parts.push(`${bad} row${bad > 1 ? 's' : ''} without a status the trace may use`)
   if (missing.length > 0) parts.push(`no row for ${missing.join(', ')}`)
   return `⚠ Request trace: ${parts.join('; ')}: read those rows before you accept the work`
+}
+
+/** The critics block after a panel's Go: null when both critic subagents reported, else what the toast says. */
+const NO_CRITICS = '⚠ No critics report: the two critics must run as fresh subagents and end with a critics block, one row each'
+function criticsVerdict(answer: string): string | null {
+  const block = fences(answer, 'critics').find(f => f.body !== '')
+  if (block === undefined) return NO_CRITICS
+  const rows = block.body
+    .split(/\r?\n/)
+    .filter(l => l.includes('|') && !l.split('|').every(c => /^[-: ]*$/.test(c.trim())) && !/^\s*\|?\s*field\s*\|/i.test(l))
+  return rows.length >= 2 ? null : `⚠ The critics block has ${rows.length} row${rows.length === 1 ? '' : 's'}, not 2: one critic did not report`
 }
 
 /** What ✎ Correct puts in the box on a panel card. A prompt that starts with it gets PANEL_REVISE attached. */
@@ -808,6 +838,9 @@ export const register: Register = (on, options) => {
       const verdict = traceVerdict(e.answer, t.needs)
       if (verdict !== null) {
         await update($, tracing, () => null)
+        // the critics' warning first, so the trace verdict stays the last word
+        const critics = criticsVerdict(e.answer)
+        if (critics !== null) $.ui.toast(critics)
         $.ui.toast(verdict)
       } else if (t.turns + 1 >= TRACE_TURNS) {
         await update($, tracing, () => null)

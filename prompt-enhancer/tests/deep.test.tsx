@@ -15,9 +15,9 @@ const fold = (s: string | undefined) => (s ?? '').replace(/\s+/g, ' ').trim()
 // folder (/…/prompt-enhancer/C:/work/vault/…): drop that prefix to reach the same key.
 const posix = (p: string) => p.replace(/\\/g, '/').replace(/^\/.*?\/(?=[A-Za-z]:\/)/, '')
 
-// A ++deep reply in the shape its instruction asks for.
+// A ++deep reply in the shape its instruction asks for (0.11.0: a fifth line from the critic subagent).
 const LENS =
-  'pro: reproduce the failure before touching code, then bisect to the breaking change\nraw: logs/auth.log (the raw SSO requests), not the summary in the ticket\nmethods: pytest -k sso, git bisect, the browser network tab\nproof: the SSO end-to-end test passes on a clean clone'
+  'pro: reproduce the failure before touching code, then bisect to the breaking change\nraw: logs/auth.log (the raw SSO requests), not the summary in the ticket\nmethods: pytest -k sso, git bisect, the browser network tab\nproof: the SSO end-to-end test passes on a clean clone\ncritic: 1 finding, dropped a coverage report the request never asked for'
 const REWRITE =
   'Fix the SSO login bug. Start from the raw request log in logs/auth.log, not the ticket summary. Reproduce the failure with pytest -k sso first, then use git bisect to find the change that broke it. Done when the SSO end-to-end test passes on a clean clone.'
 const ANSWER = `Here is how a professional would go at it.\n\`\`\`deep\n${LENS}\n\`\`\`\n\`\`\`prompt\n${REWRITE}\n\`\`\``
@@ -81,6 +81,13 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(instruction).toContain('Under 150 words, or 200 when you asked me questions first: the extra is only for my answers.')
     expect(instruction).toContain('fenced code block tagged deep')
     expect(instruction).toContain('fenced code block tagged prompt')
+    // 0.11.0: a fresh critic subagent reviews the rewrite, blind to the author's answers and reasons
+    expect(instruction).toContain('4. Before you reply, give a fresh subagent only my request, word for word, and your rewritten prompt: never your four answers, your notes or your reasons.')
+    expect(instruction).toContain('a new deliverable or kind of output, a limit or fact I never gave')
+    expect(instruction).toContain('or a check that contradicts another step')
+    expect(instruction).toContain('never mark one fixed that you did not change')
+    expect(instruction).toContain('5. Reply with the four answers and the critic\'s line')
+    expect(instruction).toContain('proof: …\ncritic: …\n')
 
     await reply($, ANSWER)
     expect(r.box).toBe(REWRITE)
@@ -93,6 +100,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(text).toContain('Start from logs/auth.log (the raw SSO requests)')
     expect(text).toContain('Methods pytest -k sso, git bisect')
     expect(text).toContain('Proof the SSO end-to-end test passes on a clean clone')
+    expect(text).toContain('Critic 1 finding, dropped a coverage report')
     // the rewrite sits under its own label line, in full
     expect(text).toContain('✍ Rewrite')
     expect(text).toContain(fold(REWRITE))
@@ -342,4 +350,29 @@ test('the 2026-10-25 re-run fix: a rewrite that comes after questions is not cal
   expect(text).not.toMatch(/bigger, not deeper/)
   await b.unmount()
   expect(r.seen.length).toBe(1)
+})
+
+test('0.11.0: a deep reply with no critic line, or "critic: none", is flagged; "critic: none found" is a real review', async ($, on) => {
+  const r = bottom(on)
+  const ask = async (lens: string, n: number) => {
+    r.box = ''
+    await $.prompt.submit({ text: '++deep fix the login bug', origin: { kind: 'composer' }, wait: false })
+    await reply($, `\`\`\`deep\n${lens}\n\`\`\`\n\`\`\`prompt\n${REWRITE}\n\`\`\``, n)
+    return cardText(await mount($))
+  }
+  const four = LENS.split('\n').slice(0, 4).join('\n')
+  expect(await ask(four, 1)).toContain('⚠ no critic subagent review')
+  expect(await ask(`${four}\ncritic: none`, 2)).toContain('⚠ no critic subagent review')
+  const clean = await ask(`${four}\ncritic: none found`, 3)
+  expect(clean).toContain('Critic none found')
+  expect(clean).not.toContain('⚠')
+})
+
+test('0.11.0: grill mode keeps the deep critic step', async ($, on) => {
+  const r = bottom(on)
+  await $.prompt.submit({ text: '++d! fix the login bug', origin: { kind: 'composer' }, wait: false })
+  const instruction = r.seen[0]!.context.join('\n')
+  expect(instruction).toContain('Grill mode: interview me')
+  expect(instruction).toContain('4. Before you reply, give a fresh subagent only my request, word for word, and your rewritten prompt')
+  expect(instruction).toContain('critic: …')
 })

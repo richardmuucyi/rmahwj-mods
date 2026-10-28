@@ -73,7 +73,7 @@ const PANEL =
 const ANSWER = `Here is the panel.\n\`\`\`panel\n${PANEL}\n\`\`\``
 // the fixed part of what ▶ Go sends; your request follows it word for word
 const GO_HEAD =
-  "Go ahead with the panel above: do the work with their methods, not their voices. Run each method with your tools where you can, and show its real result (its output, a count, a quote); if one cannot run here, say so in one line rather than describe a result. Where a method ran as its nearest step, report the result as that step's and repeat what it cannot measure. If a search finds nothing, widen it before you say a file does not exist. Where the panel left a choice open, take the safest option and name it. Run the two critics' methods after the final text is written, on that text, and report what they found and what you changed. Before you finish, run each done-when test you can, report pass or fail with its result, and list each one you could not run and who must run it."
+  "Go ahead with the panel above: do the work with their methods, not their voices. Run each method with your tools where you can, and show its real result (its output, a count, a quote); if one cannot run here, say so in one line rather than describe a result. Where a method ran as its nearest step, report the result as that step's and repeat what it cannot measure. If a search finds nothing, widen it before you say a file does not exist. Where the panel left a choice open, take the safest option and name it. Run each of the two critics as its own fresh subagent, after the final text is written: give it only my request, word for word, its field and methods from the panel, and the finished text, never your notes, your reasoning or the other critic's findings. Have it run its methods on that text where it can and report each fault with a short quote. Fix each fault that is real, and never mark one fixed that you did not change. End with the critics' results in a fenced code block tagged critics, one row per critic: <field> | <faults found> | <what you changed>. Before you finish, run each done-when test you can, report pass or fail with its result, and list each one you could not run and who must run it."
 const TRACE_RULE =
   'Before your final reply, give a fresh subagent only my request, word for word, and the finished result, and have it write one row per thing my request asks for: my words, where the result meets them (a short quote), and present, partly or absent. Add the person mark yourself: "person: yes" only when a person checked that need, "person: no" when a person should and did not, "person: n/a" when no person is involved. End with the rows in a fenced code block tagged trace: "<my words>" | <where the result meets it, quoted> | present / partly / absent | person: yes / no / n/a. Never mark present what the subagent did not find.'
 const GO = (request: string) =>
@@ -95,7 +95,10 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(instruction).toContain('fenced code block tagged panel')
     expect(instruction).toContain('"(critic)" after it for the two critics')
     expect(instruction).toContain("When I say go, do the work. Don't role-play them, use their methods.")
-    expect(instruction).toContain("Run the two critics' methods after the final text is written, on that text, not only on the plan or a first draft")
+    // 0.11.0: the critics are fresh subagents, blind to the author's notes and to each other, and they report in a critics block
+    expect(instruction).toContain("Run each of the two critics as its own fresh subagent, after the final text is written: give it only my request, word for word, its field and methods from the panel, and the finished text, never your notes, your reasoning or the other critic's findings. Have it run its methods on that text where it can and report each fault with a short quote. Fix each fault that is real, and never mark one fixed that you did not change. End with the critics' results in a fenced code block tagged critics, one row per critic: <field> | <faults found> | <what you changed>.")
+    expect(instruction).toContain('The critics judge the final text against my request, not the plan or a first draft.')
+    expect(instruction).not.toContain("Run the two critics' methods")
     expect(instruction).toContain('Keep the deliverable I asked for')
     // the fixes from the live trial (2026-10-19)
     expect(instruction).toContain('ask me with AskUserQuestion before you write the panel. The panel reply itself asks nothing')
@@ -113,7 +116,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(instruction).toContain("A person's test is run by a person")
     expect(instruction).toContain('In those lines "the owner" is me and "Claude" is you')
     expect(instruction).toContain('Give my request, word for word, to every subagent you use')
-    expect(instruction).toContain('judge it against my request')
+    expect(instruction).toContain('judge the final text against my request')
     expect(instruction).toContain('give a fresh subagent only my request, word for word, and the finished result')
     expect(instruction).toContain('Never mark present what the subagent did not find')
     expect(instruction).toContain('a test that checks those very words')

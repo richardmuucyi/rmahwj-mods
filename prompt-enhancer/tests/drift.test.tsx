@@ -243,3 +243,40 @@ test('the trace check stays armed until a trace arrives: a question turn, then t
   await reply($, 'An ordinary answer later on.', 5)
   expect(r.toasts.length).toBe(after) // a trace disarms the check
 })
+
+// 0.11.0: after a panel's Go, the card checks that both critics ran as fresh subagents and reported in a critics block.
+// Its warning comes before the trace verdict, so the trace stays the last word.
+const NO_CRITICS = '⚠ No critics report: the two critics must run as fresh subagents and end with a critics block, one row each'
+const TRACE_OK = '```trace\n' + TRACES.all_present_and_checked!.rows.join('\n') + '\n```'
+const CRITICS: Record<string, { block: string; toasts: string[] }> = {
+  both_critics_reported: {
+    block: '```critics\nfield | faults found | what you changed\n--- | --- | ---\nUsability tester | 2: step 4 assumes Docker; no domain overview | added a Docker check and Part 0\nFact-checker | 1: "39 of 49" not in the cited source | re-quoted it from SWE-Skills-Bench\n```',
+    toasts: ['Request trace: 3 of 3 present, every person check done'],
+  },
+  no_critics_block: { block: '', toasts: [NO_CRITICS, 'Request trace: 3 of 3 present, every person check done'] },
+  one_critic_only: {
+    block: '```critics\nUsability tester | 0 | nothing\n```',
+    toasts: ['⚠ The critics block has 1 row, not 2: one critic did not report', 'Request trace: 3 of 3 present, every person check done'],
+  },
+  empty_rows_only: {
+    block: '```critics\nfield | faults found | what you changed\n--- | --- | ---\n```',
+    toasts: ['⚠ The critics block has 0 rows, not 2: one critic did not report', 'Request trace: 3 of 3 present, every person check done'],
+  },
+}
+for (const [name, c] of Object.entries(CRITICS)) {
+  test(`critics ${name}`, async ($, on) => {
+    const r = bottom(on)
+    await goWith($, 1)
+    const before = r.toasts.length
+    await reply($, `Done.\n${c.block}\n${TRACE_OK}`, 2)
+    expect(r.toasts.slice(before)).toEqual(c.toasts)
+  })
+}
+
+test('the critics check waits for the trace: a turn with no trace gives only the no-trace toast', async ($, on) => {
+  const r = bottom(on)
+  await goWith($, 1)
+  const before = r.toasts.length
+  await reply($, 'Halfway: the draft is written, critics next.', 2)
+  expect(r.toasts.slice(before)).toEqual(['⚠ No request trace yet: the work is not done until its trace is written (one row per thing you asked for)'])
+})
