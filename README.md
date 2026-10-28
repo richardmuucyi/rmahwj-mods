@@ -1,6 +1,6 @@
 # rmahwj-mods
 
-Six small [Claude Code](https://claude.com/claude-code) mods, five by Richard Mah and one by Thariq Shihipar, plus two plugins of skills. A mod changes how Claude Code looks or behaves: a strip above the prompt, a panel, a slash command, a hook on your prompts. A skill is a set of steps and scripts Claude follows when your request fits it.
+Six small [Claude Code](https://claude.com/claude-code) mods, five by Richard Mah and one by Thariq Shihipar, plus three plugins of skills. A mod changes how Claude Code looks or behaves: a strip above the prompt, a panel, a slash command, a hook on your prompts. A skill is a set of steps and scripts Claude follows when your request fits it.
 
 | Mod | What it does |
 |---|---|
@@ -15,6 +15,7 @@ Six small [Claude Code](https://claude.com/claude-code) mods, five by Richard Ma
 |---|---|
 | [`diagram-skills`](diagram-skills) | Three skills: `d2-diagram` draws D2 diagrams and checks the render, `mermaid-visual-review` reviews and polishes mermaid diagrams, `svg-smith` makes and repairs SVG logos, icons and badges. They need tools such as d2, Node.js or Python packages; see its README. |
 | [`html-artefact`](html-artefact) | One skill you call by name: `/html-artefact:html-artefact <job>` builds a single-file HTML page for a thinking job, such as a comparison, a plan, a code review, an editor or a status report, from 24 recipes, then audits it. |
+| [`skill-authoring`](skill-authoring) | Two skills for skills: `ebook-to-skill` turns an EPUB into a skill or audits a skill's structure, `skill-uplift` researches current best practice and proposes verified improvements to one of your skills. |
 
 ## Install
 
@@ -40,7 +41,7 @@ Auto-update is off by default for marketplaces you did not create. Each mod has 
 
 A mod runs code inside your Claude Code session, with your permissions. Read a mod's `hooks/` folder before you install it. The code is plain TypeScript, with no build step and no network calls of its own.
 
-The skills in `diagram-skills` and `html-artefact` run Python, Node.js and shell scripts, also with your permissions. Read a skill's `SKILL.md` and `scripts/` before you install it.
+The skills in `diagram-skills`, `html-artefact` and `skill-authoring` run Python, Node.js and shell scripts, also with your permissions. Read a skill's `SKILL.md` and `scripts/` before you install it.
 
 Developed and tested on Windows 11 with Claude Code 2.1.299. Not tried on macOS or Linux yet.
 
@@ -52,7 +53,7 @@ Each mod has a `tests/` folder. Run one with:
 claude plugin test <mod-folder>
 ```
 
-The tests import `claude-code/testing`, so they only run inside Claude Code. The skills' tests are plain Python; the READMEs of [`diagram-skills`](diagram-skills) and [`html-artefact`](html-artefact) list them.
+The tests import `claude-code/testing`, so they only run inside Claude Code. The skills' tests are plain Python; the READMEs of [`diagram-skills`](diagram-skills), [`html-artefact`](html-artefact) and [`skill-authoring`](skill-authoring) list them.
 
 ## Licence
 

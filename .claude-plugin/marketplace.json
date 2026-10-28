@@ -34,6 +34,10 @@
       "source": "./session-board"
     },
     {
+      "name": "skill-authoring",
+      "source": "./skill-authoring"
+    },
+    {
       "name": "usage-gauge",
       "source": "./usage-gauge"
     }
