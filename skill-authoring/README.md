@@ -55,7 +55,7 @@ Mode B makes many model calls: one research subagent per lens, plus up to three 
 
 A skill can run commands with your permissions. Read a skill's `SKILL.md` and `scripts/` before you install the plugin.
 
-Developed and tested on Windows 11 with Claude Code 2.1.299. Not tried on macOS or Linux yet. On those, the commands may need `python3` where the skills say `python`.
+Developed on Windows 11 with Claude Code 2.1.312. Not yet tested as an installed plugin, or on macOS or Linux. On those, the commands may need `python3` where the skills say `python`.
 
 ## Tests
 
