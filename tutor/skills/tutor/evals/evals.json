@@ -1,0 +1,50 @@
+{
+  "skill_name": "tutor",
+  "evals": [
+    {
+      "id": 0,
+      "name": "adaptive-quiz-default",
+      "prompt": "Quiz me on how TCP opens and closes a connection (the three-way handshake and the teardown), until I break. I've read my notes at `notes/tcp-connections.md`.",
+      "expected_output": "A live adaptive quiz loop: binds the notes as source, writes a session ledger file beside them, asks ONE question per turn, escalates difficulty on correct answers and drops + remediates on misses, names the specific misconception on a wrong answer, and only declares the session complete after a fresh verification set passes.",
+      "files": [],
+      "assertions": [
+        {"text": "Reads the named source and extracts a concept set before quizzing"},
+        {"text": "Creates a session state file (e.g. `_tutor-session-*.md`) beside the source, with a Ledger and a completion Gate"},
+        {"text": "Asks exactly ONE question per turn (no batches of questions)"},
+        {"text": "Does NOT reveal the answer in the first response to a question"},
+        {"text": "On a correct first-try answer, the next question is harder (difficulty escalates)"},
+        {"text": "On a wrong answer, names a SPECIFIC misconception (not just 'incorrect') and gives a layered hint rather than the answer"},
+        {"text": "Difficulty drops and the concept is remediated after a break (repeated failure), rather than continuing to climb"},
+        {"text": "MCQ options are roughly equal length and no question id is repeated"},
+        {"text": "Session is declared complete ONLY after a fresh verification set (questions not previously asked) passes; completion message quotes the cleared ledger"}
+      ]
+    },
+    {
+      "id": 1,
+      "name": "feynman-teachback",
+      "prompt": "Let me explain how a hash table handles collisions back to you, Feynman-style — point out where I'm fuzzy. Source: my notes on hash tables. (--feynman)",
+      "expected_output": "A teach-back loop where the LLM plays a novice with stakes, scores the learner's explanation against a hidden rubric, surfaces only the top 1-2 gaps as the agent's own confusion + a retrieval-forcing question (never stating the missing fact), occasionally seeds a catchable error, and exits only on full rubric coverage + a transfer check.",
+      "files": [],
+      "assertions": [
+        {"text": "The agent takes the novice/learner role and asks the user to explain (does not lecture the topic)"},
+        {"text": "Frames gaps as the agent's own confusion (ego-protective), not 'you are wrong'"},
+        {"text": "Surfaces at most 1-2 gaps per round, as retrieval-forcing questions"},
+        {"text": "Never states the missing fact outright to fix a gap"},
+        {"text": "At least once restates something subtly wrong for the learner to catch"},
+        {"text": "Exits a concept only after a transfer check (apply-to-new-scenario / where-would-it-break), capped at ~2-3 cycles"}
+      ]
+    },
+    {
+      "id": 2,
+      "name": "refuses-unstudied-and-deck-handoff",
+      "prompt": "Teach me Kubernetes networking from scratch and quiz me.",
+      "expected_output": "Recognises the user has not studied the material yet, so the live quiz loop is premature: suggests /learn first (live teaching), and notes it can quiz afterward. Does not teach the whole topic inside tutor.",
+      "files": [],
+      "assertions": [
+        {"text": "Does NOT start quizzing material the user hasn't studied"},
+        {"text": "Routes 'teach from scratch' to `/learn` rather than teaching the whole topic inside tutor"},
+        {"text": "Offers to run the quiz loop after the material exists, and mentions the `anki` hand-off for spaced retention"}
+      ]
+    }
+  ]
+}

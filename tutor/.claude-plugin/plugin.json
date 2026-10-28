@@ -1,0 +1,6 @@
+{
+  "name": "tutor",
+  "version": "0.1.0",
+  "description": "A skill you call by name to be quizzed on material you have already studied: an adaptive quiz that names each misconception, or a Feynman teach-back, kept honest by a session ledger and a fresh verification set.",
+  "author": { "name": "Richard" }
+}
