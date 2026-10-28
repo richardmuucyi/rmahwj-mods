@@ -15,7 +15,7 @@ Six small [Claude Code](https://claude.com/claude-code) mods, five by Richard Ma
 |---|---|
 | [`diagram-skills`](diagram-skills) | Three skills: `d2-diagram` draws D2 diagrams and checks the render, `mermaid-visual-review` reviews and polishes mermaid diagrams, `svg-smith` makes and repairs SVG logos, icons and badges. They need tools such as d2, Node.js or Python packages; see its README. |
 | [`html-artefact`](html-artefact) | One skill you call by name: `/html-artefact:html-artefact <job>` builds a single-file HTML page for a thinking job, such as a comparison, a plan, a code review, an editor or a status report, from 24 recipes, then audits it. |
-| [`skill-authoring`](skill-authoring) | Two skills for skills: `ebook-to-skill` turns an EPUB into a skill or audits a skill's structure, `skill-uplift` researches current best practice and proposes verified improvements to one of your skills. |
+| [`skill-authoring`](skill-authoring) | Three skills for skills: `ebook-to-skill` turns an EPUB into a skill or audits a skill's structure, `skill-uplift` researches current best practice and proposes verified improvements to one of your skills, `self-improving-skills` lets a skill learn from its runs behind six gates. |
 
 ## Install
 
