@@ -17,7 +17,7 @@ const posix = (p: string) => p.replace(/\\/g, '/').replace(/^\/.*?\/(?=[A-Za-z]:
 
 // A ++deep reply in the shape its instruction asks for (0.11.0: a fifth line from the critic subagent).
 const LENS =
-  'pro: reproduce the failure before touching code, then bisect to the breaking change\nraw: logs/auth.log (the raw SSO requests), not the summary in the ticket\nmethods: pytest -k sso, git bisect, the browser network tab\nproof: the SSO end-to-end test passes on a clean clone\ncritic: 1 finding, dropped a coverage report the request never asked for'
+  'pro: reproduce the failure before touching code, then bisect to the breaking change\nraw: logs/auth.log (the raw SSO requests), not the summary in the ticket\nmethods: pytest -k sso, git bisect, the browser network tab\nproof: the SSO end-to-end test passes on a clean clone\ncritic: 1 finding, dropped a coverage report the request never asked for; re-check: none found'
 const REWRITE =
   'Fix the SSO login bug. Start from the raw request log in logs/auth.log, not the ticket summary. Reproduce the failure with pytest -k sso first, then use git bisect to find the change that broke it. Done when the SSO end-to-end test passes on a clean clone.'
 const ANSWER = `Here is how a professional would go at it.\n\`\`\`deep\n${LENS}\n\`\`\`\n\`\`\`prompt\n${REWRITE}\n\`\`\``
@@ -88,6 +88,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(instruction).toContain('never mark one fixed that you did not change')
     expect(instruction).toContain('5. Reply with the four answers and the critic\'s line')
     expect(instruction).toContain('proof: …\ncritic: …\n')
+    // 0.11.2: a fix that changed the rewrite gets the critic subagent again
+    expect(instruction).toContain('If a fix changed the rewrite, give the changed rewrite to a fresh critic subagent again, with the same inputs, and fix what it finds.')
+    expect(instruction).toContain('"critic: <how many findings>, <what you changed>; re-check: <how many findings>, <what you changed>"')
 
     await reply($, ANSWER)
     expect(r.box).toBe(REWRITE)
@@ -375,4 +378,22 @@ test('0.11.0: grill mode keeps the deep critic step', async ($, on) => {
   expect(instruction).toContain('Grill mode: interview me')
   expect(instruction).toContain('4. Before you reply, give a fresh subagent only my request, word for word, and your rewritten prompt')
   expect(instruction).toContain('critic: …')
+})
+
+test('0.11.2: a critic line that changed the rewrite needs a re-check; one that changed nothing does not', async ($, on) => {
+  const r = bottom(on)
+  const ask = async (critic: string, n: number) => {
+    r.box = ''
+    await $.prompt.submit({ text: '++deep fix the login bug', origin: { kind: 'composer' }, wait: false })
+    const four = LENS.split('\n').slice(0, 4).join('\n')
+    await reply($, `\`\`\`deep\n${four}\ncritic: ${critic}\n\`\`\`\n\`\`\`prompt\n${REWRITE}\n\`\`\``, n)
+    return cardText(await mount($))
+  }
+  const GAP = 'no critic checked the changed rewrite'
+  // the 2026-10-28 live dinners run: one fix, no re-check
+  expect(await ask('1 finding — the sodium figure was stated without a check; the rewrite now confirms it first', 1)).toContain(GAP)
+  expect(await ask('2 findings, removed a nutrition table; re-check: 1 finding, dropped an invented budget', 2)).not.toContain(GAP)
+  expect(await ask('2 findings; Re-check: none found', 3)).not.toContain(GAP)
+  expect(await ask('none found', 4)).not.toContain(GAP)
+  expect(await ask('1 finding, not real on a second look; nothing changed', 5)).not.toContain(GAP)
 })

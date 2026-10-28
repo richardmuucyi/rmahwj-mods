@@ -82,7 +82,7 @@ declare module 'claude-code' {
       /** What is being drafted and how many turns are left to catch it; null when nothing is. */
       drafting: { kind: 'brief' | 'goal' | 'loop' | 'deep' | 'panel'; turnsLeft: number; words?: number; request?: string; grill?: boolean } | null
       /** After a panel's Go: the request the work must be traced back to, checked when that turn ends; null otherwise. */
-      tracing: { request: string; needs: { quote: string; person: boolean }[]; turns: number } | null
+      tracing: { request: string; needs: { quote: string; person: boolean }[]; turns: number; critics?: string[]; spawned?: number } | null
       /** The `==` grammar card; null for none. */
       grammar: GrammarCard | null
     }

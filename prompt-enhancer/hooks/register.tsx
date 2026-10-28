@@ -147,13 +147,18 @@ stop: …
 never: … (or "none")`
 
 /**
+ * 0.11.2 (the owner's ask, 2026-10-28): the panel's re-check rule (0.11.1) for deep too. A fix that changed the
+ * rewrite earns one critic run again on it, and the critic line says so; the card flags a change with no re-check.
  * 0.11.0 (the owner's ask, 2026-10-28): the rewrite is reviewed by a fresh critic subagent before it is shown, so
  * the author never grades its own rewrite. It sees only the request and the rewrite, never the four answers or the
  * author's reasons, and looks for the drift the 2026-10-24/25 evals found: new outputs, invented limits, unchecked
  * steps, self-run proofs, and checks that contradict the plan (salt left off a list that must hold every item).
  */
+/** A critic line where the rewrite never changed (nothing found, or nothing real), so it needs no re-check. */
+const CRITIC_CLEAN = /^\s*(?:none(?: found)?|0 findings?|no findings?)\b|\b(?:nothing changed|no changes?|unchanged)\b/i
+const NO_DEEP_RECHECK = 'the critic changed the rewrite, but no critic checked the changed rewrite (no re-check in the critic line)'
 const DEEP_CRITIC =
-  `Before you reply, give a fresh subagent only my request, word for word, and your rewritten prompt: never your four answers, your notes or your reasons. Have it list, each with a short quote from the rewrite, where the rewrite drifts from my request: a new deliverable or kind of output, a limit or fact I never gave, a step that assumes something you marked "(unchecked)", a proof only you or I would run, or a check that contradicts another step. Fix each finding that is real, and never mark one fixed that you did not change. Then write the critic's line: "critic: <how many findings>, <what you changed>", or "critic: none found".`
+  `Before you reply, give a fresh subagent only my request, word for word, and your rewritten prompt: never your four answers, your notes or your reasons. Have it list, each with a short quote from the rewrite, where the rewrite drifts from my request: a new deliverable or kind of output, a limit or fact I never gave, a step that assumes something you marked "(unchecked)", a proof only you or I would run, or a check that contradicts another step. Fix each finding that is real, and never mark one fixed that you did not change. If a fix changed the rewrite, give the changed rewrite to a fresh critic subagent again, with the same inputs, and fix what it finds. Then write the critic's line: "critic: <how many findings>, <what you changed>; re-check: <how many findings>, <what you changed>", or "critic: none found" when the first critic found nothing.`
 /**
  * "Deeper, not bigger": what a top professional would do, start from, use, and let prove the
  * result, then my prompt rewritten to ask for exactly that. The four questions are the owner's
@@ -198,6 +203,8 @@ const TRACE_RULE =
  * a trace back to the request.
  */
 /**
+ * 0.11.4 (2026-10-28): the card counts the critic subagents that really start after Go (an agent.spawn hook) and
+ * warns when the critics block claims more runs than that; a block alone is text any reply could write.
  * 0.11.1 (the owner's ask, 2026-10-28): the first live run fixed five critic faults and no critic saw the fixed
  * text, so a fix that changes the text earns one critic run again on it, reported in a "(re-check)" row.
  * 0.11.0 (the owner's ask, 2026-10-28): the two critics run as fresh subagents, not as the author checking its own
@@ -232,8 +239,8 @@ const PANEL_GO_RULES =
  * and its critics are all held to what you asked, not to the panel's paraphrase of it.
  */
 function panelGo(request: string | undefined): string {
-  if (request === undefined || request.trim() === '') return `${PANEL_GO_RULES} ${TRACE_RULE}`
-  return `${PANEL_GO_RULES} Give my request below, word for word, to every subagent you use, and have the critics judge the result against it, not only against the plan. ${TRACE_RULE}\n\nMy request, word for word:\n<<<\n${request.trim()}\n>>>`
+  if (request === undefined || request.trim() === '') return `${PANEL_GO_RULES} ${PRIVATE_NOTES} ${TRACE_RULE}`
+  return `${PANEL_GO_RULES} ${PRIVATE_NOTES} Give my request below, word for word, to every subagent you use, and have the critics judge the result against it, not only against the plan. ${TRACE_RULE}\n\nMy request, word for word:\n<<<\n${request.trim()}\n>>>`
 }
 /** A typed reply on a panel card that means "start": it gets the same trace check as ▶ Go. A question does not. */
 const GO_AHEAD = /^\s*(?:go(?: ahead)?|ok(?:ay)?|yes|yep|proceed|start|do it|let'?s go|continue|approved?|lgtm|sounds good)\b(?![^.!]*\?)/i
@@ -297,12 +304,23 @@ function traceVerdict(answer: string, needs: readonly Need[]): string | null {
   return `⚠ Request trace: ${parts.join('; ')}: read those rows before you accept the work`
 }
 
+/** The fields of a panel's two critics, as its card read them. */
+const criticFields = (r: DraftedCommand) => (r.experts ?? []).filter(x => x.critic).map(x => x.field)
+/**
+ * A subagent that is one of the critics (0.11.4): its description names a critic, or the opening of its prompt does
+ * ("Your field: usability tester (critic)"), or that opening names a critic's field. Only the opening, so a trace or
+ * cold-read subagent handed the whole answer, critics block and all, is not counted.
+ */
+function isCriticSpawn(description: string, prompt: string, critics: readonly string[]): boolean {
+  const head = `${description}\n${prompt.slice(0, 600)}`.toLowerCase()
+  return /\bcritic/.test(head) || critics.some(f => f.trim() !== '' && head.includes(f.trim().toLowerCase()))
+}
 /** The critics block after a panel's Go: null when both critic subagents reported (and one re-checked any change), else what the toast says. */
 const NO_CRITICS = '⚠ No critics report: the two critics must run as fresh subagents and end with a critics block, one row each'
 const NO_RECHECK = '⚠ A fix changed the text, but no critic checked the changed text: ask for one critic again on it'
 /** A "what you changed" cell that says nothing changed. */
 const NO_CHANGE = /^(?:none|nothing|no change[sd]?|n\/a|-|—|unchanged|0)\.?$/i
-function criticsVerdict(answer: string): string | null {
+function criticsVerdict(answer: string, spawned?: number): string | null {
   const block = fences(answer, 'critics').find(f => f.body !== '')
   if (block === undefined) return NO_CRITICS
   const rows = block.body
@@ -312,6 +330,11 @@ function criticsVerdict(answer: string): string | null {
   const recheck = rows.filter(r => /\(\s*re-?check\s*\)/i.test(r[0] ?? ''))
   const first = rows.filter(r => !recheck.includes(r))
   if (first.length < 2) return `⚠ The critics block has ${first.length} row${first.length === 1 ? '' : 's'}, not 2: one critic did not report`
+  // 0.11.4: the block is text; the spawns are what really ran. Two critics, plus one per re-check row.
+  const runs = first.length + recheck.length
+  if (spawned !== undefined && spawned < runs) {
+    return `⚠ The critics block reports ${runs} critic run${runs === 1 ? '' : 's'}, but only ${spawned} critic subagent${spawned === 1 ? '' : 's'} started`
+  }
   const changed = first.some(r => r.length >= 3 && !NO_CHANGE.test(r.at(-1)!.replace(/[*_`]/g, '')))
   return changed && recheck.length === 0 ? NO_RECHECK : null
 }
@@ -333,7 +356,13 @@ const INSTRUCTION = { brief: CLARIFY, goal: GOAL, loop: LOOP, deep: DEEPEN, pane
  * nothing (the panel's "the panel reply itself asks nothing" won over the interview), and all 3 ++d! runs read
  * daily and finance notes to guess the owner's household.
  */
-const GRILL_INTERVIEW = `Grill mode: interview me until you hold every fact this result depends on, with no limit on rounds or length. First read the files about this request and run the read-only commands that could answer a question, and never ask what they answer. Do not search my private notes (daily notes, journal, personal areas) for facts about me, my family, health, money or relationships: ask me instead. Keep a ledger: start each reply that asks, and end the reply that drafts, with a fenced code block tagged ledger, one line per fact the result needs: "settled: <fact>: <value> (from me / from <file>)", "open: <fact>: <what its answer changes>" or "assumed: <fact>: <the value you will use>". Ask with AskUserQuestion, up to 4 questions per call (the tool's own limit), round after round: put the option you recommend first, marked (Recommended), and say in each question what its answer changes. Ask nothing whose answer would not change the result. When an answer opens a new gap, add it to the ledger as open and ask it. Draft only when no line is open, or when I say go or enough: then mark each open line assumed, with the value you will use.`
+/**
+ * 0.11.3 (the owner's ask, 2026-10-28): every mode, not only grill. A plain ++d live run on the family dinners
+ * request opened by grepping the vault for "kids|daughter|son|budget"; only the headless permission stopped it.
+ * Grill had this line since 0.10.1, when all three ++d! runs read daily and finance notes to guess the household.
+ */
+const PRIVATE_NOTES = `Do not search my private notes (daily notes, journal, personal areas) for facts about me, my family, health, money or relationships: ask me instead.`
+const GRILL_INTERVIEW = `Grill mode: interview me until you hold every fact this result depends on, with no limit on rounds or length. First read the files about this request and run the read-only commands that could answer a question, and never ask what they answer. Keep a ledger: start each reply that asks, and end the reply that drafts, with a fenced code block tagged ledger, one line per fact the result needs: "settled: <fact>: <value> (from me / from <file>)", "open: <fact>: <what its answer changes>" or "assumed: <fact>: <the value you will use>". Ask with AskUserQuestion, up to 4 questions per call (the tool's own limit), round after round: put the option you recommend first, marked (Recommended), and say in each question what its answer changes. Ask nothing whose answer would not change the result. When an answer opens a new gap, add it to the ledger as open and ask it. Draft only when no line is open, or when I say go or enough: then mark each open line assumed, with the value you will use.`
 const GRILL_TRACE =
   'No length limit: write as much as the result needs, and no more. One deliverable, and every line of the draft traces to my request or to a settled or assumed ledger line; add nothing they do not hold.'
 /** The plain instruction with its caps on questions, rounds and length taken out, and the interview put in. */
@@ -764,7 +793,7 @@ export const register: Register = (on, options) => {
       }
       // A go-ahead typed on a panel card starts the work just as ▶ Go does, so its reply is checked for the trace too.
       if (e.origin.kind === 'composer' && settles === 'panel' && waiting !== null && GO_AHEAD.test(text)) {
-        await update($, tracing, () => ({ request: waiting.request ?? '', needs: needsOf(waiting), turns: 0 }))
+        await update($, tracing, () => ({ request: waiting.request ?? '', needs: needsOf(waiting), turns: 0, critics: criticFields(waiting), spawned: 0 }))
       }
       // Your next prompt after a brief, a panel or a deeper prompt (a go-ahead, a correction, the rewrite itself) settles its card.
       if (e.origin.kind === 'composer' && (settles === 'brief' || settles === 'panel' || settles === 'deep')) await update($, ready, () => null)
@@ -797,7 +826,7 @@ export const register: Register = (on, options) => {
     // a new request ends the trace check of the work before it
     await update($, tracing, () => null)
     await update($, ready, () => null)
-    let instruction: string = grill ? grillInstruction(kind) : INSTRUCTION[kind]
+    let instruction: string = `${grill ? grillInstruction(kind) : INSTRUCTION[kind]}\n${PRIVATE_NOTES}`
     if (kind !== 'brief') {
       const names = await userOnlySkills($).catch(() => [])
       const list = names.map(n => `/${n}`).join(', ')
@@ -839,6 +868,19 @@ export const register: Register = (on, options) => {
   })
 
   // While a draft is on its way, catch it when a turn ends.
+  // After a panel's Go: count the critic subagents that really start (0.11.4), so a critics block cannot claim runs
+  // that never happened. Only spawns from the main loop count; one that is refused counts nothing.
+  on('agent.spawn', async ($, e, next) => {
+    const result = await next(e)
+    if (e.parentAgentId === undefined && !('deny' in result)) {
+      const t = await read($, tracing)
+      if (t !== null && isCriticSpawn(e.description ?? '', e.prompt ?? '', t.critics ?? [])) {
+        await update($, tracing, v => (v === null ? null : { ...v, spawned: (v.spawned ?? 0) + 1 }))
+      }
+    }
+    return result
+  })
+
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
     // After a panel's Go: has the work ended with a trace back to your request? The check stays on until a
@@ -849,7 +891,7 @@ export const register: Register = (on, options) => {
       if (verdict !== null) {
         await update($, tracing, () => null)
         // the critics' warning first, so the trace verdict stays the last word
-        const critics = criticsVerdict(e.answer)
+        const critics = criticsVerdict(e.answer, t.spawned)
         if (critics !== null) $.ui.toast(critics)
         $.ui.toast(verdict)
       } else if (t.turns + 1 >= TRACE_TURNS) {
@@ -959,6 +1001,10 @@ export const register: Register = (on, options) => {
     if (kind === 'goal') gaps.push(...lintGoal(r.args, userOnly ?? []))
     if (kind === 'loop') gaps.push(...lintLoop(r.args, userOnly ?? []))
     if (kind === 'deep') gaps.push(...lintDeep(byLabel.get('proof'), r.args, userOnly ?? [], r.request, r.asked === true, r.grill === true))
+    if (kind === 'deep') {
+      const critic = byLabel.get('critic')
+      if (critic !== undefined && !isNone(critic) && !CRITIC_CLEAN.test(critic) && !/\bre-?check\b/i.test(critic)) gaps.push(NO_DEEP_RECHECK)
+    }
     // a card from before 0.9.1 has no done lines and one from before 0.9.2 no request: neither is judged on them
     if (kind === 'panel') gaps.push(...lintPanel(r.experts ?? [], userOnly ?? [], (r.note ?? '').length, r.done, r.request, r.grill === true))
     if (r.grill === true) {
@@ -1092,7 +1138,7 @@ export const register: Register = (on, options) => {
             onPress={async () => {
               await close()
               // the reply to this Go is checked for a trace back to your request when its turn ends
-              await update($, tracing, () => ({ request: r.request ?? '', needs: needsOf(r), turns: 0 }))
+              await update($, tracing, () => ({ request: r.request ?? '', needs: needsOf(r), turns: 0, critics: criticFields(r), spawned: 0 }))
               await $.prompt.submit({ text: panelGo(r.request), asUser: true })
             }}
           />

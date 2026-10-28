@@ -221,3 +221,18 @@ test('0.10.1: a grill panel interviews before the panel, and grill never mines p
   await $.prompt.submit({ text: '++p write the onboarding guide', origin: { kind: 'composer' }, wait: false })
   expect(r.seen.at(-1)!.context.join('\n')).toContain('The panel reply itself asks nothing: the card shows only the panel.')
 })
+
+test('0.11.3: every mode, plain and grill, carries the private-notes rule exactly once', async ($, on) => {
+  const r = bottom(on)
+  const RULE = 'Do not search my private notes (daily notes, journal, personal areas) for facts about me, my family, health, money or relationships: ask me instead.'
+  const count = (s: string) => s.split(RULE).length - 1
+  for (const typed of ['++ a', '++g a', '++l a', '++d a', '++p a', '++! a', '++g! a', '++l! a', '++d! a', '++p! a']) {
+    await $.prompt.submit({ text: typed, origin: { kind: 'composer' }, wait: false })
+    expect([typed, count(r.seen.at(-1)!.context.join('\n'))]).toEqual([typed, 1])
+  }
+  // the long and slash forms reach the same instructions
+  for (const typed of ['++deep a', '++panel a', '++goal a', '++loop a']) {
+    await $.prompt.submit({ text: typed, origin: { kind: 'composer' }, wait: false })
+    expect([typed, count(r.seen.at(-1)!.context.join('\n'))]).toEqual([typed, 1])
+  }
+})

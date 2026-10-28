@@ -31,6 +31,8 @@ function bottom(on: Parameters<TestBody>[1], files = new Map<string, string>(), 
     return { value: undefined }
   })
   on('turn.complete', (_$, e) => ({ text: e.answer }))
+  let spawned = 0
+  on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `agent-${++spawned}` }))
   on('ui.render', ($, e) => {
     const { Box } = $.ui.resolve(e)
     return <Box key="engine-own" />
@@ -252,22 +254,36 @@ const NO_RECHECK = '⚠ A fix changed the text, but no critic checked the change
 const TRACE_TOAST = 'Request trace: 3 of 3 present, every person check done'
 const ROW_UX = 'Usability tester | 2: step 4 assumes Docker; no domain overview | added a Docker check and Part 0'
 const ROW_FC = 'Fact-checker | 1: "39 of 49" not in the cited source | re-quoted it from SWE-Skills-Bench'
-const CRITICS: Record<string, { block: string; toasts: string[] }> = {
+/** A subagent started the way Claude starts one with the Agent tool. */
+const spawn = ($: Parameters<TestBody>[0], description: string, prompt: string) =>
+  $.agent.spawn({ description, prompt, subagentType: 'general-purpose' })
+/** The two critics of TRACE_PANEL, and a re-check, as live runs name them (2026-10-28). */
+const CRITIC_SPAWNS: [string, string][] = [
+  ['Critic: usability tester', 'You are reviewing a finished piece of text. Your field: usability tester (critic).'],
+  ['Fact-checker review', 'Your field: fact-checker. Trace each claim in the text to a file:line or a primary source.'],
+  ['Critic re-check: usability tester', 'You are reviewing the changed text. Your field: usability tester (critic).'],
+]
+const CRITICS: Record<string, { block: string; toasts: string[]; spawns?: number }> = {
   // 0.11.1: fixes changed the text, and one critic checked the changed text
   both_critics_and_a_recheck: {
+    spawns: 3,
     block: `\`\`\`critics\nfield | faults found | what you changed\n--- | --- | ---\n${ROW_UX}\n${ROW_FC}\nUsability tester (re-check) | 0 | nothing\n\`\`\``,
     toasts: [TRACE_TOAST],
   },
   // the 2026-10-28 live run: five faults fixed, and no critic saw the fixed text
-  fixes_without_a_recheck: { block: `\`\`\`critics\n${ROW_UX}\n${ROW_FC}\n\`\`\``, toasts: [NO_RECHECK, TRACE_TOAST] },
-  no_fix_needs_no_recheck: { block: '```critics\nUsability tester | 0 | nothing\nFact-checker | 0 faults | none\n```', toasts: [TRACE_TOAST] },
+  fixes_without_a_recheck: {
+    spawns: 2, block: `\`\`\`critics\n${ROW_UX}\n${ROW_FC}\n\`\`\``, toasts: [NO_RECHECK, TRACE_TOAST] },
+  no_fix_needs_no_recheck: {
+    spawns: 2, block: '```critics\nUsability tester | 0 | nothing\nFact-checker | 0 faults | none\n```', toasts: [TRACE_TOAST] },
   no_critics_block: { block: '', toasts: [NO_CRITICS, TRACE_TOAST] },
   one_critic_only: {
+    spawns: 1,
     block: '```critics\nUsability tester | 0 | nothing\n```',
     toasts: ['⚠ The critics block has 1 row, not 2: one critic did not report', TRACE_TOAST],
   },
   // a re-check row is not one of the two critics
   one_critic_and_its_recheck: {
+    spawns: 2,
     block: `\`\`\`critics\n${ROW_UX}\nUsability tester (re-check) | 0 | nothing\n\`\`\``,
     toasts: ['⚠ The critics block has 1 row, not 2: one critic did not report', TRACE_TOAST],
   },
@@ -280,6 +296,7 @@ for (const [name, c] of Object.entries(CRITICS)) {
   test(`critics ${name}`, async ($, on) => {
     const r = bottom(on)
     await goWith($, 1)
+    for (const [d, p] of CRITIC_SPAWNS.slice(0, c.spawns ?? 0)) await spawn($, d, p)
     const before = r.toasts.length
     await reply($, `Done.\n${c.block}\n${TRACE_OK}`, 2)
     expect(r.toasts.slice(before)).toEqual(c.toasts)
@@ -292,4 +309,51 @@ test('the critics check waits for the trace: a turn with no trace gives only the
   const before = r.toasts.length
   await reply($, 'Halfway: the draft is written, critics next.', 2)
   expect(r.toasts.slice(before)).toEqual(['⚠ No request trace yet: the work is not done until its trace is written (one row per thing you asked for)'])
+})
+
+// 0.11.4: the card counts the critic subagents that really started, so a critics block alone is not believed
+const BLOCK_3 = `\`\`\`critics\n${ROW_UX}\n${ROW_FC}\nUsability tester (re-check) | 0 | nothing\n\`\`\``
+test('a critics block with no critic subagent behind it is called out', async ($, on) => {
+  const r = bottom(on)
+  await goWith($, 1)
+  const before = r.toasts.length
+  await reply($, `Done.\n${BLOCK_3}\n${TRACE_OK}`, 2)
+  expect(r.toasts.slice(before)).toEqual(['⚠ The critics block reports 3 critic runs, but only 0 critic subagents started', TRACE_TOAST])
+})
+
+test('a re-check row needs its own subagent: two critic spawns are not enough for three rows', async ($, on) => {
+  const r = bottom(on)
+  await goWith($, 1)
+  for (const [d, p] of CRITIC_SPAWNS.slice(0, 2)) await spawn($, d, p)
+  const before = r.toasts.length
+  await reply($, `Done.\n${BLOCK_3}\n${TRACE_OK}`, 2)
+  expect(r.toasts.slice(before)).toEqual(['⚠ The critics block reports 3 critic runs, but only 2 critic subagents started', TRACE_TOAST])
+})
+
+test('subagents that are not critics do not count: a trace handed the whole answer, a cold-read, spawns before Go', async ($, on) => {
+  const r = bottom(on)
+  await $.prompt.submit({ text: `++panel ${REQUEST}`, origin: { kind: 'composer' }, wait: false })
+  // before Go nothing is counted, even a critic
+  await spawn($, 'Critic: usability tester', 'Your field: usability tester (critic).')
+  await reply($, '```panel\n' + TRACE_PANEL + '\n```', 1)
+  const b = await mount($)
+  await b.press({ key: 'pe-go' })
+  await b.unmount()
+  await spawn($, 'Landlord comprehension cold-read', 'Read the email below once, cold, as the landlord receiving it.')
+  await spawn($, 'Trace request against result', `Write one row for each thing the request asks for.${' Result text.'.repeat(60)}\n${BLOCK_3}`)
+  for (const [d, p] of CRITIC_SPAWNS) await spawn($, d, p)
+  const before = r.toasts.length
+  await reply($, `Done.\n${BLOCK_3}\n${TRACE_OK}`, 2)
+  expect(r.toasts.slice(before)).toEqual([TRACE_TOAST])
+})
+
+test('non-critic subagents cannot make up for a missing critic: a cold-read and a trace beside one critic still count 1', async ($, on) => {
+  const r = bottom(on)
+  await goWith($, 1)
+  await spawn($, 'Landlord comprehension cold-read', 'Read the email below once, cold, as the landlord receiving it.')
+  await spawn($, 'Trace request against result', 'Write one row for each thing the request asks for.')
+  await spawn($, CRITIC_SPAWNS[0]![0], CRITIC_SPAWNS[0]![1])
+  const before = r.toasts.length
+  await reply($, `Done.\n${BLOCK_3}\n${TRACE_OK}`, 2)
+  expect(r.toasts.slice(before)).toEqual(['⚠ The critics block reports 3 critic runs, but only 1 critic subagent started', TRACE_TOAST])
 })
