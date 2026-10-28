@@ -198,12 +198,14 @@ const TRACE_RULE =
  * a trace back to the request.
  */
 /**
+ * 0.11.1 (the owner's ask, 2026-10-28): the first live run fixed five critic faults and no critic saw the fixed
+ * text, so a fix that changes the text earns one critic run again on it, reported in a "(re-check)" row.
  * 0.11.0 (the owner's ask, 2026-10-28): the two critics run as fresh subagents, not as the author checking its own
  * work. Each gets only the request, its own field and methods, and the finished text, never the author's notes or
  * the other critic's findings. A critics block lets the card see whether they reported.
  */
 const PANEL_CRITICS =
-  "Run each of the two critics as its own fresh subagent, after the final text is written: give it only my request, word for word, its field and methods from the panel, and the finished text, never your notes, your reasoning or the other critic's findings. Have it run its methods on that text where it can and report each fault with a short quote. Fix each fault that is real, and never mark one fixed that you did not change. End with the critics' results in a fenced code block tagged critics, one row per critic: <field> | <faults found> | <what you changed>."
+  "Run each of the two critics as its own fresh subagent, after the final text is written: give it only my request, word for word, its field and methods from the panel, and the finished text, never your notes, your reasoning or the other critic's findings. Have it run its methods on that text where it can and report each fault with a short quote. Fix each fault that is real, and never mark one fixed that you did not change. If a fix changed the text, run one critic again as a fresh subagent, with the same inputs and the changed text, and fix what it finds. End with the critics' results in a fenced code block tagged critics, one row per critic: <field> | <faults found> | <what you changed>, and for the critic run again a row whose field ends \"(re-check)\"."
 const PANEL = `Before you start on my request above, pick the five experts from different fields who would make this outstanding, including two whose job is to find what's wrong with it. For each one, tell me what they would actually do and which methods they would use. Do not start the work in this turn; wait for my go-ahead or my corrections.
 - If a choice must be settled before the work (which tools I will use, a fixed time, a budget), ask me with AskUserQuestion before you write the panel. The panel reply itself asks nothing: the card shows only the panel.
 - Name each by field, not as an invented person: no personas, voices or quotes.
@@ -295,15 +297,23 @@ function traceVerdict(answer: string, needs: readonly Need[]): string | null {
   return `⚠ Request trace: ${parts.join('; ')}: read those rows before you accept the work`
 }
 
-/** The critics block after a panel's Go: null when both critic subagents reported, else what the toast says. */
+/** The critics block after a panel's Go: null when both critic subagents reported (and one re-checked any change), else what the toast says. */
 const NO_CRITICS = '⚠ No critics report: the two critics must run as fresh subagents and end with a critics block, one row each'
+const NO_RECHECK = '⚠ A fix changed the text, but no critic checked the changed text: ask for one critic again on it'
+/** A "what you changed" cell that says nothing changed. */
+const NO_CHANGE = /^(?:none|nothing|no change[sd]?|n\/a|-|—|unchanged|0)\.?$/i
 function criticsVerdict(answer: string): string | null {
   const block = fences(answer, 'critics').find(f => f.body !== '')
   if (block === undefined) return NO_CRITICS
   const rows = block.body
     .split(/\r?\n/)
     .filter(l => l.includes('|') && !l.split('|').every(c => /^[-: ]*$/.test(c.trim())) && !/^\s*\|?\s*field\s*\|/i.test(l))
-  return rows.length >= 2 ? null : `⚠ The critics block has ${rows.length} row${rows.length === 1 ? '' : 's'}, not 2: one critic did not report`
+    .map(l => l.split('|').map(c => c.trim()).filter((c, i, all) => !(c === '' && (i === 0 || i === all.length - 1))))
+  const recheck = rows.filter(r => /\(\s*re-?check\s*\)/i.test(r[0] ?? ''))
+  const first = rows.filter(r => !recheck.includes(r))
+  if (first.length < 2) return `⚠ The critics block has ${first.length} row${first.length === 1 ? '' : 's'}, not 2: one critic did not report`
+  const changed = first.some(r => r.length >= 3 && !NO_CHANGE.test(r.at(-1)!.replace(/[*_`]/g, '')))
+  return changed && recheck.length === 0 ? NO_RECHECK : null
 }
 
 /** What ✎ Correct puts in the box on a panel card. A prompt that starts with it gets PANEL_REVISE attached. */

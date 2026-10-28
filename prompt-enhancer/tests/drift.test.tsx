@@ -248,19 +248,32 @@ test('the trace check stays armed until a trace arrives: a question turn, then t
 // Its warning comes before the trace verdict, so the trace stays the last word.
 const NO_CRITICS = '⚠ No critics report: the two critics must run as fresh subagents and end with a critics block, one row each'
 const TRACE_OK = '```trace\n' + TRACES.all_present_and_checked!.rows.join('\n') + '\n```'
+const NO_RECHECK = '⚠ A fix changed the text, but no critic checked the changed text: ask for one critic again on it'
+const TRACE_TOAST = 'Request trace: 3 of 3 present, every person check done'
+const ROW_UX = 'Usability tester | 2: step 4 assumes Docker; no domain overview | added a Docker check and Part 0'
+const ROW_FC = 'Fact-checker | 1: "39 of 49" not in the cited source | re-quoted it from SWE-Skills-Bench'
 const CRITICS: Record<string, { block: string; toasts: string[] }> = {
-  both_critics_reported: {
-    block: '```critics\nfield | faults found | what you changed\n--- | --- | ---\nUsability tester | 2: step 4 assumes Docker; no domain overview | added a Docker check and Part 0\nFact-checker | 1: "39 of 49" not in the cited source | re-quoted it from SWE-Skills-Bench\n```',
-    toasts: ['Request trace: 3 of 3 present, every person check done'],
+  // 0.11.1: fixes changed the text, and one critic checked the changed text
+  both_critics_and_a_recheck: {
+    block: `\`\`\`critics\nfield | faults found | what you changed\n--- | --- | ---\n${ROW_UX}\n${ROW_FC}\nUsability tester (re-check) | 0 | nothing\n\`\`\``,
+    toasts: [TRACE_TOAST],
   },
-  no_critics_block: { block: '', toasts: [NO_CRITICS, 'Request trace: 3 of 3 present, every person check done'] },
+  // the 2026-10-28 live run: five faults fixed, and no critic saw the fixed text
+  fixes_without_a_recheck: { block: `\`\`\`critics\n${ROW_UX}\n${ROW_FC}\n\`\`\``, toasts: [NO_RECHECK, TRACE_TOAST] },
+  no_fix_needs_no_recheck: { block: '```critics\nUsability tester | 0 | nothing\nFact-checker | 0 faults | none\n```', toasts: [TRACE_TOAST] },
+  no_critics_block: { block: '', toasts: [NO_CRITICS, TRACE_TOAST] },
   one_critic_only: {
     block: '```critics\nUsability tester | 0 | nothing\n```',
-    toasts: ['⚠ The critics block has 1 row, not 2: one critic did not report', 'Request trace: 3 of 3 present, every person check done'],
+    toasts: ['⚠ The critics block has 1 row, not 2: one critic did not report', TRACE_TOAST],
+  },
+  // a re-check row is not one of the two critics
+  one_critic_and_its_recheck: {
+    block: `\`\`\`critics\n${ROW_UX}\nUsability tester (re-check) | 0 | nothing\n\`\`\``,
+    toasts: ['⚠ The critics block has 1 row, not 2: one critic did not report', TRACE_TOAST],
   },
   empty_rows_only: {
     block: '```critics\nfield | faults found | what you changed\n--- | --- | ---\n```',
-    toasts: ['⚠ The critics block has 0 rows, not 2: one critic did not report', 'Request trace: 3 of 3 present, every person check done'],
+    toasts: ['⚠ The critics block has 0 rows, not 2: one critic did not report', TRACE_TOAST],
   },
 }
 for (const [name, c] of Object.entries(CRITICS)) {
