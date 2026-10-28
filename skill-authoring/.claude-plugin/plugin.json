@@ -1,0 +1,6 @@
+{
+  "name": "skill-authoring",
+  "version": "0.1.0",
+  "description": "Two skills for building and improving skills: turn an EPUB into a skill or audit a SKILL.md's structure, and uplift an existing skill against current best practice with verified research.",
+  "author": { "name": "Richard" }
+}
