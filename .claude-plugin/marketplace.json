@@ -38,6 +38,10 @@
       "source": "./skill-authoring"
     },
     {
+      "name": "tutor",
+      "source": "./tutor"
+    },
+    {
       "name": "usage-gauge",
       "source": "./usage-gauge"
     }
