@@ -76,8 +76,8 @@ a dozen skills); promotion only fired when something broke.
 
 **The sweep:** on a schedule you already keep (a monthly review, say), list the entries graded
 `corroborated` / `mechanical-fact` that have been unpromoted for ≥30 days. Age and grade are
-mechanical, so a small script is the right tool (see the scriptability sentinel below). Report
-four things worth acting on:
+mechanical, so a script does it: `scripts/ripe_learnings.py` in this skill (`--days N`, `--root`,
+`--json`; test: `evals/test_ripe_learnings.py`). It reports four things worth acting on:
 
 | Bucket | Meaning |
 |---|---|
