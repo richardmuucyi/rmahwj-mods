@@ -22,6 +22,24 @@ const REFRESH_MS = 15_000
 /** What the person chose to show (the manifest's userConfig); `register` sets it from its options. */
 let show: Show = showOf({})
 
+/** The last text a chip typed into the prompt box. */
+let filled: string | undefined
+
+/**
+ * A chip's click: its command goes into the prompt box, and the person presses Enter (a mod never sends one). The box
+ * is read at the click, so a draft no edit reported (a resumed session, a recalled prompt) counts too. A box that holds
+ * words of the person's, or that cannot be read, is left alone; text a chip typed is not theirs, so another chip may
+ * replace it.
+ */
+async function typeCommand($: EngineInterface, text: string): Promise<void> {
+  const box = await $.prompt.read().catch(() => null)
+  if (box === null) return
+  const now = box.text.trim()
+  if (now !== '' && now !== filled) return
+  const r = await $.prompt.fill({ text, mode: 'replace' }).catch(() => undefined)
+  if (r?.isFilled) filled = text
+}
+
 /**
  * The model and effort chips use Anthropic's brand accents (blue and orange) with the brand dark for the text. White
  * text on the orange is 3.1:1, below the 4.5:1 small text needs; the dark is 5.9:1 on it and 6.3:1 on the blue.
@@ -437,6 +455,7 @@ export const register: Register = (on, options) => {
   show = showOf(options)
 
   on('session.start', async ($, e, next) => {
+    filled = undefined
     await refresh($).catch(() => undefined)
     void refreshGit($)
     $.clock.every(REFRESH_MS, () => {
@@ -541,9 +560,15 @@ export const register: Register = (on, options) => {
     return r
   }).catch(($, e, next) => next(e))
 
+  // A prompt the person sent from the box: what a chip typed is gone, so "/model" typed by hand later is theirs.
+  on('prompt.submit', async ($, e, next) => {
+    if (e.origin.kind === 'composer') filled = undefined
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
   // Two rows under the prompt, in place of the hint line, which stays beneath them.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
-    const { Box, Text } = $.ui.resolve(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
     const ui = { Box, Text }
     const g: Gauge = await read($, gauge)
     // The surface's own measure. PromptHint's props carry no width (that is the AbovePrompt band's `bodyColumns`), so
@@ -565,19 +590,25 @@ export const register: Register = (on, options) => {
     // A request that did not send what the person selected: that chip in the theme's warning colour, "selected → sent".
     const selModel = !newModel && g.ran && g.selected?.model !== undefined && !sameModel(g.selected.model, g.model) ? g.selected.model : undefined
     const selEffort = !newEffort && g.ran && g.selected?.effort !== undefined && g.effort !== undefined && g.selected.effort !== g.effort ? g.selected.effort : undefined
+    // Each chip is a button: a click types /model or /effort into the prompt box (see typeCommand). A Button may not sit
+    // inside a Text, so the pair is a Box.
     const chip = model && (
-      <Text key="ug-chip">
-        {selModel ? (
-          <Text bold color={CHIP.model.fg} backgroundColor="warning">{` ${shortModel(selModel)} → ${shortModel(model)} `}</Text>
-        ) : (
-          <Text bold color={CHIP.model.fg} backgroundColor={CHIP.model.bg}>{` ${isNarrow ? shortModel(model) : model} `}</Text>
-        )}
+      <Box key="ug-chip">
+        <Button key="ug-model" plain onPress={() => void typeCommand($, '/model').catch(() => undefined)}>
+          {selModel ? (
+            <Text bold color={CHIP.model.fg} backgroundColor="warning">{` ${shortModel(selModel)} → ${shortModel(model)} `}</Text>
+          ) : (
+            <Text bold color={CHIP.model.fg} backgroundColor={CHIP.model.bg}>{` ${isNarrow ? shortModel(model) : model} `}</Text>
+          )}
+        </Button>
         {effort && (
-          <Text bold color={CHIP.effort.fg} backgroundColor={selEffort ? 'warning' : CHIP.effort.bg}>
-            {selEffort ? ` ${effortLabel(selEffort)} → ${effortLabel(effort)} ` : ` ${effortLabel(effort)} `}
-          </Text>
+          <Button key="ug-effort" plain onPress={() => void typeCommand($, '/effort').catch(() => undefined)}>
+            <Text bold color={CHIP.effort.fg} backgroundColor={selEffort ? 'warning' : CHIP.effort.bg}>
+              {selEffort ? ` ${effortLabel(selEffort)} → ${effortLabel(effort)} ` : ` ${effortLabel(effort)} `}
+            </Text>
+          </Button>
         )}
-      </Text>
+      </Box>
     )
     const gap = (k: string) => <Text key={k}>{'   '}</Text>
     // Row 1 is the items the person chose and the pane has room for, three spaces apart: a missing one leaves no hole.
