@@ -6,6 +6,10 @@
   "description": "Richard's Claude Code mods, one folder per mod.",
   "plugins": [
     {
+      "name": "all-themes",
+      "source": "./all-themes"
+    },
+    {
       "name": "assumptions",
       "source": "./assumptions"
     },

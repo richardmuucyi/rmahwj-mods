@@ -1,6 +1,6 @@
 # rmahwj-mods
 
-Six small [Claude Code](https://claude.com/claude-code) mods, five by Richard Mah and one by Thariq Shihipar, plus four plugins of skills. A mod changes how Claude Code looks or behaves: a strip above the prompt, a panel, a slash command, a hook on your prompts. A skill is a set of steps and scripts Claude follows when your request fits it.
+Six small [Claude Code](https://claude.com/claude-code) mods, five by Richard Mah and one by Thariq Shihipar, plus four plugins of skills and one theme pack. A mod changes how Claude Code looks or behaves: a strip above the prompt, a panel, a slash command, a hook on your prompts. A skill is a set of steps and scripts Claude follows when your request fits it.
 
 | Mod | What it does |
 |---|---|
@@ -17,6 +17,10 @@ Six small [Claude Code](https://claude.com/claude-code) mods, five by Richard Ma
 | [`html-artefact`](html-artefact) | One skill you call by name: `/html-artefact:html-artefact <job>` builds a single-file HTML page for a thinking job, such as a comparison, a plan, a code review, an editor or a status report, from 24 recipes, then audits it. |
 | [`skill-authoring`](skill-authoring) | Three skills for skills: `ebook-to-skill` turns an EPUB into a skill or audits a skill's structure, `skill-uplift` researches current best practice and proposes verified improvements to one of your skills, `self-improving-skills` lets a skill learn from its runs behind six gates. |
 | [`tutor`](tutor) | One skill you call by name: `/tutor:tutor` quizzes you on material you have studied, one question at a time, or has you explain it back Feynman-style, and only calls you done after a fresh verification round. |
+
+| Themes | What they do |
+|---|---|
+| [`all-themes`](all-themes) | 54 Claude Code UI themes for `/theme`, from 13 public palettes (Catppuccin, Dracula, Nord, Tokyo Night and more), each with an ANSI variant. Plus matching Windows Terminal colour schemes. JSON colour files plus `gen_themes.py`, the script that builds them; nothing runs when you install it. |
 
 ## Install
 
@@ -48,7 +52,7 @@ Developed and tested on Windows 11 with Claude Code 2.1.299. Not tried on macOS 
 
 ## Tests
 
-Each mod has a `tests/` folder. Run one with:
+Each mod has a `tests/` folder (the `all-themes` pack has none: it has no hooks). Run one with:
 
 ```
 claude plugin test <mod-folder>
