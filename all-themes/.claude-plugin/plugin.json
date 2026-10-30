@@ -1,0 +1,9 @@
+{
+  "name": "all-themes",
+  "version": "1.3.0",
+  "description": "54 Claude Code UI themes from 13 public colour palettes, each with an ANSI variant.",
+  "author": {
+    "name": "Richard"
+  },
+  "license": "MIT"
+}
