@@ -1,0 +1,134 @@
+FAIL src/sum.test.js
+  ● sum › breaks
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 3
+    Received: 2
+
+    [0m [90m 2 |[39m describe([32m'sum'[39m[33m,[39m () [33m=>[39m {
+     [90m 3 |[39m   test([32m'adds'[39m[33m,[39m () [33m=>[39m { expect([35m1[39m [33m+[39m [35m1[39m)[33m.[39mtoBe([35m2[39m)[33m;[39m })[33m;[39m
+    [31m[1m>[22m[39m[90m 4 |[39m   test([32m'breaks'[39m[33m,[39m () [33m=>[39m { expect([35m1[39m [33m+[39m [35m1[39m)[33m.[39mtoBe([35m3[39m)[33m;[39m })[33m;[39m
+     [90m   |[39m                                        [31m[1m^[22m[39m
+     [90m 5 |[39m   describe([32m'nested group'[39m[33m,[39m () [33m=>[39m {
+     [90m 6 |[39m     test([32m'also breaks'[39m[33m,[39m () [33m=>[39m { [36mthrow[39m [36mnew[39m [33mError[39m([32m'boom'[39m)[33m;[39m })[33m;[39m
+     [90m 7 |[39m   })[33m;[39m[0m
+
+      at Object.toBe (src/sum.test.js:4:40)
+
+  ● sum › nested group › also breaks
+
+    boom
+
+    [0m [90m 4 |[39m   test([32m'breaks'[39m[33m,[39m () [33m=>[39m { expect([35m1[39m [33m+[39m [35m1[39m)[33m.[39mtoBe([35m3[39m)[33m;[39m })[33m;[39m
+     [90m 5 |[39m   describe([32m'nested group'[39m[33m,[39m () [33m=>[39m {
+    [31m[1m>[22m[39m[90m 6 |[39m     test([32m'also breaks'[39m[33m,[39m () [33m=>[39m { [36mthrow[39m [36mnew[39m [33mError[39m([32m'boom'[39m)[33m;[39m })[33m;[39m
+     [90m   |[39m                                       [31m[1m^[22m[39m
+     [90m 7 |[39m   })[33m;[39m
+     [90m 8 |[39m })[33m;[39m
+     [90m 9 |[39m test([32m'top level fail'[39m[33m,[39m () [33m=>[39m { expect([[35m1[39m])[33m.[39mtoEqual([[35m2[39m])[33m;[39m })[33m;[39m[0m
+
+      at Object.<anonymous> (src/sum.test.js:6:39)
+
+  ● top level fail
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 1
+
+      Array [
+    -   2,
+    +   1,
+      ]
+
+    [0m [90m  7 |[39m   })[33m;[39m
+     [90m  8 |[39m })[33m;[39m
+    [31m[1m>[22m[39m[90m  9 |[39m test([32m'top level fail'[39m[33m,[39m () [33m=>[39m { expect([[35m1[39m])[33m.[39mtoEqual([[35m2[39m])[33m;[39m })[33m;[39m
+     [90m    |[39m                                            [31m[1m^[22m[39m
+     [90m 10 |[39m[0m
+
+      at Object.toEqual (src/sum.test.js:9:44)
+
+FAIL src/sum.vitest.test.mjs
+  ● Test suite failed to run
+
+    Jest encountered an unexpected token
+
+    Jest failed to parse a file. This happens e.g. when your code or its dependencies use non-standard JavaScript syntax, or when Jest is not configured to support such syntax.
+
+    Out of the box Jest supports Babel, which will be used to transform your files into valid JS based on your Babel configuration.
+
+    By default "node_modules" folder is ignored by transformers.
+
+    Here's what you can do:
+     • If you are trying to use ECMAScript Modules, see https://jestjs.io/docs/ecmascript-modules for how to enable it.
+     • If you are trying to use TypeScript, see https://jestjs.io/docs/getting-started#using-typescript
+     • To have some of your "node_modules" files transformed, you can specify a custom "transformIgnorePatterns" in your config.
+     • If you need a custom transformation, specify a "transform" option in your config.
+     • If you simply want to mock your non-JS modules (e.g. binary assets) you can stub them out with the "moduleNameMapper" config option.
+
+    You'll find more details and examples of these config options in the docs:
+    https://jestjs.io/docs/configuration
+    For information about custom transformations, see:
+    https://jestjs.io/docs/code-transformation
+
+    Details:
+
+    /work\js\src\sum.vitest.test.mjs:1
+    import { test, expect, describe } from 'vitest';
+    ^^^^^^
+
+    SyntaxError: Cannot use import statement outside a module
+
+      at Runtime.createScriptFromCode (node_modules/jest-runtime/build/index.js:1316:40)
+
+FAIL src/broken.vitest.test.mjs
+  ● Test suite failed to run
+
+    Jest encountered an unexpected token
+
+    Jest failed to parse a file. This happens e.g. when your code or its dependencies use non-standard JavaScript syntax, or when Jest is not configured to support such syntax.
+
+    Out of the box Jest supports Babel, which will be used to transform your files into valid JS based on your Babel configuration.
+
+    By default "node_modules" folder is ignored by transformers.
+
+    Here's what you can do:
+     • If you are trying to use ECMAScript Modules, see https://jestjs.io/docs/ecmascript-modules for how to enable it.
+     • If you are trying to use TypeScript, see https://jestjs.io/docs/getting-started#using-typescript
+     • To have some of your "node_modules" files transformed, you can specify a custom "transformIgnorePatterns" in your config.
+     • If you need a custom transformation, specify a "transform" option in your config.
+     • If you simply want to mock your non-JS modules (e.g. binary assets) you can stub them out with the "moduleNameMapper" config option.
+
+    You'll find more details and examples of these config options in the docs:
+    https://jestjs.io/docs/configuration
+    For information about custom transformations, see:
+    https://jestjs.io/docs/code-transformation
+
+    Details:
+
+    /work\js\src\broken.vitest.test.mjs:1
+    import { test } from 'vitest';
+    ^^^^^^
+
+    SyntaxError: Cannot use import statement outside a module
+
+      at Runtime.createScriptFromCode (node_modules/jest-runtime/build/index.js:1316:40)
+
+FAIL src/broken.test.js
+  ● Test suite failed to run
+
+    import boom
+
+    [0m[31m[1m>[22m[39m[90m 1 |[39m [36mthrow[39m [36mnew[39m [33mError[39m([32m'import boom'[39m)[33m;[39m test([32m'x'[39m[33m,[39m()[33m=>[39m{})[33m;[39m
+     [90m   |[39m       [31m[1m^[22m[39m
+     [90m 2 |[39m[0m
+
+      at Object.<anonymous> (src/broken.test.js:1:7)
+
+Test Suites: 4 failed, 4 total
+Tests:       3 failed, 1 passed, 4 total
+Snapshots:   0 total
+Time:        0.363 s, estimated 1 s
+Ran all test suites.

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="4" failures="3" errors="0" time="0.005973">
+    <testsuite name="src/sum.vitest.test.mjs" timestamp="2026-10-20T22:10:07.410Z" hostname="host" tests="4" failures="3" errors="0" skipped="0" time="0.005973">
+        <testcase classname="src/sum.vitest.test.mjs" name="sum &gt; adds" time="0.0005776">
+        </testcase>
+        <testcase classname="src/sum.vitest.test.mjs" name="sum &gt; breaks" time="0.0036086">
+            <failure message="expected 2 to be 3 // Object.is equality" type="AssertionError">
+AssertionError: expected 2 to be 3 // Object.is equality
+
+- Expected
++ Received
+
+- 3
++ 2
+
+ ❯ src/sum.vitest.test.mjs:4:40
+            </failure>
+        </testcase>
+        <testcase classname="src/sum.vitest.test.mjs" name="sum &gt; nested group &gt; also breaks" time="0.0001751">
+            <failure message="boom" type="Error">
+Error: boom
+ ❯ src/sum.vitest.test.mjs:6:39
+            </failure>
+        </testcase>
+        <testcase classname="src/sum.vitest.test.mjs" name="top level fail" time="0.0009963">
+            <failure message="expected [ 1 ] to deeply equal [ 2 ]" type="AssertionError">
+AssertionError: expected [ 1 ] to deeply equal [ 2 ]
+
+- Expected
++ Received
+
+  [
+-   2,
++   1,
+  ]
+
+ ❯ src/sum.vitest.test.mjs:9:44
+            </failure>
+        </testcase>
+    </testsuite>
+</testsuites>

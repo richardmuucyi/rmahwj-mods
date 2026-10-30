@@ -1,0 +1,63 @@
+   Compiling rs v0.1.0 (/work\rs)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.36s
+     Running unittests src\lib.rs (target\debug\deps\rs-d15f4fe995c6da1f.exe)
+
+running 4 tests
+test tests::skipped ... ignored
+test tests::ok ... ok
+test tests::inner::panics ... FAILED
+test tests::bad ... FAILED
+
+failures:
+
+---- tests::inner::panics stdout ----
+
+thread 'tests::inner::panics' (10108) panicked at src\lib.rs:8:39:
+inner boom
+
+---- tests::bad stdout ----
+
+thread 'tests::bad' (52364) panicked at src\lib.rs:7:24:
+assertion `left == right` failed
+  left: 4
+ right: 5
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tests::bad
+    tests::inner::panics
+
+test result: FAILED. 1 passed; 2 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`
+     Running tests\integration.rs (target\debug\deps\integration-1cdff240a809ede1.exe)
+
+running 2 tests
+test integ_ok ... ok
+test integ_fail ... FAILED
+
+failures:
+
+---- integ_fail stdout ----
+
+thread 'integ_fail' (61320) panicked at tests\integration.rs:1:27:
+integration broke
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    integ_fail
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--test integration`
+   Doc-tests rs
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 2 targets failed:
+    `--lib`
+    `--test integration`

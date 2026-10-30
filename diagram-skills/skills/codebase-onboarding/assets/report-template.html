@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{TITLE}}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: an engineering report. A colour key, then one section per question; each section's colour matches
+   the nodes it explains in the diagrams. Tables and diagrams scroll inside their own boxes. */
+:root {
+  --bg: #f4f5f3; --panel: #ffffff; --fg: #1c2321; --soft: #55615c; --rule: #d5dad5; --tint: #e9ece8;
+  --ok: #1f6b45; --warn: #8a5a00; --bad: #b0002a;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+{{LIGHT_TOKENS}}
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141917; --panel: #1b211f; --fg: #e2e7e3; --soft: #a0aca6; --rule: #2e3833; --tint: #222a27;
+    --ok: #7fd1a1; --warn: #e2b25c; --bad: #ff8fa3; color-scheme: dark;
+{{DARK_TOKENS}}
+  }
+  :root:not([data-theme="light"]) .dg-light { display: none; }
+  :root:not([data-theme="light"]) .dg-dark { display: block; }
+}
+:root[data-theme="dark"] {
+  --bg: #141917; --panel: #1b211f; --fg: #e2e7e3; --soft: #a0aca6; --rule: #2e3833; --tint: #222a27;
+  --ok: #7fd1a1; --warn: #e2b25c; --bad: #ff8fa3; color-scheme: dark;
+{{DARK_TOKENS}}
+}
+:root[data-theme="dark"] .dg-light { display: none; }
+:root[data-theme="dark"] .dg-dark { display: block; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 16px; line-height: 1.55; }
+.wrap { max-width: 980px; margin: 0 auto; padding-block: 32px 72px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 28px; }
+h1 { font-size: clamp(28px, 5vw, 40px); margin: 0; line-height: 1.15; text-wrap: balance; }
+h2 { font-size: 22px; margin: 0; line-height: 1.2; }
+h3 { font-size: 16px; margin: 6px 0 0; }
+p, ul, ol { margin: 0; }
+ul, ol { padding-left: 20px; display: grid; gap: 4px; }
+code, .mono { font-family: var(--f-mono); font-size: .88em; overflow-wrap: anywhere; }
+.meta { color: var(--soft); font-size: 14px; }
+.key { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 13.5px; }
+.key span { display: inline-flex; align-items: center; gap: 6px; }
+.key i { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+section { background: var(--panel); border: 1px solid var(--rule); border-top: 5px solid var(--c, var(--soft));
+  border-radius: 4px; padding: 18px 18px 20px; display: grid; gap: 12px; min-width: 0; }
+section > h2 { color: var(--c, var(--fg)); }
+.big { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+.facts { display: flex; flex-wrap: wrap; gap: 12px 28px; }
+.facts div { display: grid; gap: 4px; }
+.facts span { color: var(--soft); font-size: 13.5px; }
+.scroll { overflow-x: auto; border: 1px solid var(--rule); border-radius: 4px; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--rule); }
+th { background: var(--tint); color: var(--soft); font-size: 12.5px; text-transform: uppercase; letter-spacing: .05em; }
+tr:last-child td { border-bottom: 0; }
+.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.diagram { overflow-x: auto; background: var(--bg); border-radius: 4px; padding: 8px; }
+.diagram img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+.dg-dark { display: none; }
+.pill { font-family: var(--f-mono); font-size: 12px; padding: 1px 7px; border-radius: 3px; background: var(--tint); white-space: nowrap; }
+.pill.bad { color: var(--bad); } .pill.warn { color: var(--warn); } .pill.ok { color: var(--ok); }
+.not-checked { color: var(--warn); }
+.note { color: var(--soft); font-size: 14px; }
+pre.excerpt { margin: 0; white-space: pre-wrap; font-family: var(--f-body); font-size: 15px; background: var(--bg); padding: 10px 12px; border-radius: 4px; }
+li.idea, li.code-item { line-height: 1.5; }
+a { color: var(--c, inherit); text-underline-offset: 2px; }
+a:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+{{SECTION_RULES}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="meta">{{META}}</div>
+  <h1>{{TITLE}}</h1>
+  <div class="key" aria-label="Colour key">{{KEY}}</div>
+</header>
+{{SECTIONS}}
+<footer class="meta">Built by the codebase-onboarding skill, stage 8. Every fact names the file it came from; "not checked" means a scan did not run, never that it found nothing.</footer>
+</div>
+</body>
+</html>
