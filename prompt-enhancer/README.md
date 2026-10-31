@@ -1,41 +1,52 @@
 # prompt-enhancer
 
-Claude checks your request for gaps and restates it before any work starts. No extra model calls.
+A grammar check before you send, and two skills that sharpen a request before any work starts.
 
-In every mode, Claude never searches your private notes (daily notes, journal, personal areas) for facts about you, your family, health, money or relationships: it asks you instead.
+| You type | What happens |
+|---|---|
+| `== <text>` or `/grammar <text>` | One small Haiku call (about 1.4K tokens) checks only your grammar. The corrected text goes into an empty prompt box, with what changed shown beside it. Your text is never sent to Claude. Switch it off in `/config` |
+| `/prompt-enhancer:enhance <request>` | Claude asks about the gaps that would change the result, says what a top professional would add, then writes one deeper prompt and asks "Run it now?" |
+| `/prompt-enhancer:goal-draft <request>` | Claude drafts a `/goal` condition with a turn cap, or a `/loop` command, ready to copy |
 
-| You type | What Claude does | Same as |
-|---|---|---|
-| `++ <request>` | Checks the request for gaps and restates it as a brief before any work | `/clarify <request>` |
-| `++goal <request>` or `++g` | Checks for gaps, then drafts a short, checkable `/goal` with a printed turn cap | `/goalify <request>` |
-| `++loop <request>` or `++l` | Checks for gaps, then drafts a safe, self-stopping `/loop` | `/loopify <request>` |
-| `++deep <request>` or `++d` | Says what a top professional would do, start from and be proved right by, then rewrites your prompt deeper, not bigger | `/deepen <request>` |
-| `++panel <request>` or `++p` | Picks five experts (two of them critics) and a done-when test for each reader of the result, then does the work when you press Go | `/panel <request>` |
-| `== <text>` | Checks only your grammar with one small Haiku call; nothing is sent to Claude. Switch it off in `/config` | `/grammar <text>` |
+The two skills are user-invoked: Claude never starts them on its own, only when you type the name. Neither one searches your private notes (daily notes, journal, personal areas) for facts about you, your family, health, money or relationships: each asks you instead.
 
-## Grill mode
+## `/prompt-enhancer:enhance`
 
-Add `!` right after the mode: `++!`, `++g!`, `++l!`, `++d!`, `++p!`.
+1. **Gaps.** Up to four questions, multiple choice where it can, about what would change the result: the goal, the scope, the limits, how you will know it is done. It skips what you already said.
+2. **Deeper.** Four short lines: what a top professional would do that you did not ask for (`pro`), the raw material they would start from (`raw`), the methods and tools by name (`methods`), and what other than you or Claude would show the result is right (`proof`). It names only paths and commands it has checked; anything else is marked "(unchecked)".
+3. **One prompt.** Your request word for word, with the raw material, methods and proof added as steps. The same deliverable and about the same amount of work: no new reports, tables or extra outputs.
+4. **Run it now?** Run it, edit it first, or stop.
 
-- Claude interviews you round after round, with no cap on rounds or length.
-- It keeps a `ledger` of the facts the result needs: settled, open or assumed.
-- It drafts only when no line is open, or when you say go or enough.
-- Every line of the draft traces back to your request or the ledger.
-- The card flags any fact it still had to guess.
+Two words can go before the request, in either order:
 
-Use it when the job is big or the request is thin. For a quick job, the plain mode is faster.
+- `panel` adds five experts from different fields, two of them critics, one line each with their methods. The prompt then carries a done-when test for each reader of the result, and asks for the checks to be run by a fresh subagent that has not seen the work.
+- `grill` replaces the four-question limit with a full interview, round after round. A `ledger` block tracks each fact the result needs as settled, open or assumed, and the prompt is drafted only when nothing is open or you say go.
 
-## Critics run as fresh subagents
+```
+/prompt-enhancer:enhance panel grill write the onboarding guide for the billing service
+```
 
-The critics review the work with a clean context, never the author's notes or reasons:
+## `/prompt-enhancer:goal-draft`
 
-- `++panel`: after the work is written, each of the two critics runs as its own subagent on the finished text, with only your request and its own methods. If a fix changed the text, one critic runs again on the changed text. The work ends with a `critics` block: one row per critic, and a `(re-check)` row for the second run.
-- `++deep`: before the reply, a subagent checks the rewrite against your request for new outputs, invented limits and self-run proofs. If a fix changed the rewrite, it checks the changed rewrite again. Its result is the `critic:` line on the card.
+It reads your request as a goal ("keep working until X holds", or a one-off "check that X") or a loop ("every hour", "each time something appears"), then asks about each missing part, at most three rounds.
 
-The card checks this after the work:
+- **Goal:** one condition under 600 characters for a judge that runs nothing and reads only the chat. The end state is something command output shows, and it ends after K goal checks with a `GOAL CAPPED:` reply, so it can never run forever. Every reply ends `Goal turn N/K`.
+- **Loop:** one `/loop` line under 600 characters, self-paced unless the work is on a clock, safe to repeat, with a stop condition and "never push, delete or send" unless you asked for it. Work that waits for a log line is pointed to a Monitor, and work that must run with the laptop off is pointed to `/schedule`.
 
-- `++panel`: it counts the critic subagents that really started, and warns when the `critics` block is missing, has fewer than two critics, claims more runs than really started, or shows a fix with no re-check.
-- `++deep`: it flags a missing `critic:` line, and one that reports a change with no re-check.
+Claude cannot type `/goal` or `/loop` for you: copy the block it gives and send it.
+
+## Moving from 0.13 or earlier
+
+The `++` modes were removed from the mod in 0.14.0 and live in the skills now.
+
+| Before | Now |
+|---|---|
+| `++`, `++deep` (`/clarify`, `/deepen`) | `/prompt-enhancer:enhance` |
+| `++panel` (`/panel`) | `/prompt-enhancer:enhance panel` |
+| `++!` and the other grill modes | add `grill` |
+| `++goal`, `++loop` (`/goalify`, `/loopify`) | `/prompt-enhancer:goal-draft` |
+
+The old card that counted the critic subagents after the work is gone with the modes.
 
 ## Install
 
@@ -50,3 +61,5 @@ The card checks this after the work:
 ```
 claude plugin test prompt-enhancer
 ```
+
+They cover the grammar check. The two skills are prompts with no tests of their own.
