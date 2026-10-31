@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { BRANCH_MAX, BRANCH_MIN, NARROW_BELOW, TOKENS_FROM, cap, clip, layoutOf, parseStatus, showOf, slotsOf } from '../hooks/git'
+import { BRANCH_MAX, BRANCH_MIN, NARROW_BELOW, SPEED_FROM, cap, clip, layoutOf, parseStatus, showOf, slotsOf } from '../hooks/git'
 import type { Git } from '../types'
 
 // The parts of the git slots that need no engine: what `git status --porcelain=v2 --branch` says as counts, the counts
@@ -119,13 +119,12 @@ test('slots: warning for news on the remote, error for a diverged branch or a co
 })
 
 test('options: every item is on unless the person turned it off', () => {
-  const ON = { time: true, cost: true, speed: true, tokens: true, git: true, cache: true, fetch: true }
+  const ON = { time: true, cost: true, speed: true, git: true, cache: true, fetch: true }
   expect(showOf({})).toEqual(ON)
   expect(showOf({ showTime: true, showGit: true })).toEqual(ON)
   expect(showOf({ showTime: false })).toEqual({ ...ON, time: false })
   expect(showOf({ showCost: false })).toEqual({ ...ON, cost: false })
   expect(showOf({ showSpeed: false })).toEqual({ ...ON, speed: false })
-  expect(showOf({ showTokens: false })).toEqual({ ...ON, tokens: false })
   expect(showOf({ showGit: false })).toEqual({ ...ON, git: false })
   expect(showOf({ showCache: false })).toEqual({ ...ON, cache: false })
   expect(showOf({ fetchRemote: false })).toEqual({ ...ON, fetch: false })
@@ -133,35 +132,34 @@ test('options: every item is on unless the person turned it off', () => {
 
 test('layout: without the git chip every threshold is the gauge\'s old one', () => {
   expect(NARROW_BELOW).toBe(115)
-  expect(layoutOf(114, false, true)).toMatchObject({ narrow: true, tokens: false })
-  expect(layoutOf(115, false, true)).toMatchObject({ narrow: false, tokens: true })
-  expect(layoutOf(300, false, false).tokens).toBe(false)
+  expect(layoutOf(80, false)).toMatchObject({ narrow: true, speed: true })
+  expect(layoutOf(114, false)).toMatchObject({ narrow: true, speed: true })
+  expect(layoutOf(115, false)).toMatchObject({ narrow: false, speed: true })
 })
 
-test('layout: with the git chip the tokens wait for 131 columns, and the untracked slot is in every wide pane', () => {
-  expect(TOKENS_FROM).toBe(131)
-  expect(layoutOf(114, true, true)).toMatchObject({ narrow: true, tokens: false, untracked: false })
-  expect(layoutOf(115, true, true)).toMatchObject({ narrow: false, tokens: false, untracked: true })
-  expect(layoutOf(130, true, true)).toMatchObject({ tokens: false, untracked: true })
-  expect(layoutOf(131, true, true)).toMatchObject({ tokens: true, untracked: true })
-  // The person turned the tokens off: nothing to give way.
-  expect(layoutOf(200, true, false)).toMatchObject({ tokens: false, untracked: true })
+test('layout: with the git chip the speed waits for 85 columns, and the untracked slot is in every wide pane', () => {
+  expect(SPEED_FROM).toBe(85)
+  expect(layoutOf(84, true)).toMatchObject({ narrow: true, speed: false, untracked: false })
+  expect(layoutOf(85, true)).toMatchObject({ narrow: true, speed: true, untracked: false })
+  expect(layoutOf(114, true)).toMatchObject({ narrow: true, speed: true, untracked: false })
+  expect(layoutOf(115, true)).toMatchObject({ narrow: false, speed: true, untracked: true })
 })
 
 test('layout: the branch takes what is left, 2 cells to spare, from 4 to 16 cells; an unmeasured pane gets all 16', () => {
   expect([BRANCH_MIN, BRANCH_MAX]).toEqual([4, 16])
-  // narrow: the row without the branch is 80 cells at most
-  expect(layoutOf(80, true, true).branch).toBe(0)
-  expect(layoutOf(86, true, true).branch).toBe(0)
-  expect(layoutOf(87, true, true).branch).toBe(4)
-  expect(layoutOf(99, true, true).branch).toBe(16)
-  expect(layoutOf(114, true, true).branch).toBe(16)
-  // wide without the tokens: 101
-  expect(layoutOf(115, true, true).branch).toBe(11)
-  expect(layoutOf(130, true, true).branch).toBe(16)
-  // wide with the tokens: 120, so the branch starts again at 8 where they come in
-  expect(layoutOf(131, true, true).branch).toBe(8)
-  expect(layoutOf(139, true, true).branch).toBe(16)
-  expect(layoutOf(undefined, true, true)).toEqual({ narrow: false, tokens: true, untracked: true, branch: 16 })
-  expect(layoutOf(0, true, true)).toEqual({ narrow: false, tokens: true, untracked: true, branch: 16 })
+  // narrow without the speed: the row without the branch is 72 cells at most
+  expect(layoutOf(80, true).branch).toBe(5)
+  expect(layoutOf(84, true).branch).toBe(9)
+  // narrow with the speed: 85, so the branch starts again at none where it comes in
+  expect(layoutOf(85, true).branch).toBe(0)
+  expect(layoutOf(91, true).branch).toBe(0)
+  expect(layoutOf(92, true).branch).toBe(4)
+  expect(layoutOf(104, true).branch).toBe(16)
+  expect(layoutOf(114, true).branch).toBe(16)
+  // wide: 106
+  expect(layoutOf(115, true).branch).toBe(6)
+  expect(layoutOf(124, true).branch).toBe(15)
+  expect(layoutOf(125, true).branch).toBe(16)
+  expect(layoutOf(undefined, true)).toEqual({ narrow: false, speed: true, untracked: true, branch: 16 })
+  expect(layoutOf(0, true)).toEqual({ narrow: false, speed: true, untracked: true, branch: 16 })
 })

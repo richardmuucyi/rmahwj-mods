@@ -144,7 +144,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
   test(`after a response that cached: the chip is part of the clock chip, right after the session time (${surface})`, async ($, on) => {
     await session($, on, {}, surface)
     await ask($)
-    expect(await row1($, surface)).toBe('claude-opus-5-5 ● high ⏱ 0m ⏳ 60m ⚡ – t/s in 93k out 100')
+    expect(await row1($, surface)).toBe('claude-opus-5-5 ● high ⏱ 0m ⏳ 60m 96%')
     // Plain text while there is time: no colour of its own.
     expect(await colour($, surface)).toEqual([])
   })
@@ -270,6 +270,62 @@ test('a /clear (the session starts over) drops the clock', async ($, on) => {
   expect(await chip($)).toBe('⏳ –')
 })
 
+test('a /clear starts the speed and the cache rate over, and hides them until the next request', async ($, on) => {
+  const { clock, r } = await session($, on, { streamMs: 2 * SEC })
+  await ask($)
+  expect(await row1($)).toBe('claude-opus-5-5 ● high ⏱ 0m ⏳ 60m 96% ⚡ 50 t/s')
+  r.startedAt = START + 10 * MIN
+  await clock.advance(15 * SEC)
+  expect(await row1($)).toBe('claude-opus-5-5 ● high ⏱ 0m ⏳ –')
+  r.usage = null
+  await ask($)
+  expect(await row1($)).toBe('claude-opus-5-5 ● high ⏱ 0m ⏳ –')
+})
+
+test('a request sent straight after a /clear, before the gauge has looked, counts for the new conversation', async ($, on) => {
+  const { clock, r } = await session($, on)
+  await ask($)
+  await clock.advance(10 * MIN)
+  r.startedAt = START + 10 * MIN
+  await ask($)
+  expect(await row1($)).toBe('claude-opus-5-5 ● high ⏱ 0m ⏳ 60m 96%')
+})
+
+test("the clock chip ends with the share of the main chat's input that the cache served, over the session", async ($, on) => {
+  const { r } = await session($, on)
+  await ask($)
+  expect(await row1($)).toBe('claude-opus-5-5 ● high ⏱ 0m ⏳ 60m 96%')
+  r.usage = WRITE
+  await ask($)
+  expect(await row1($)).toBe('claude-opus-5-5 ● high ⏱ 0m ⏳ 60m 48%')
+})
+
+test('the cache rate is rounded down, so 100% means every input token came from the cache', async ($, on) => {
+  await session($, on, { usage: { input_tokens: 1, output_tokens: 10, cache_read_input_tokens: 999, cache_creation_input_tokens: 0 } })
+  await ask($)
+  expect(await row1($)).toBe('claude-opus-5-5 ● high ⏱ 0m ⏳ 60m 99%')
+})
+
+test('a request that cached nothing still counts: a dash and 0%', async ($, on) => {
+  await session($, on, { usage: NONE })
+  await ask($)
+  expect(await row1($)).toBe('claude-opus-5-5 ● high ⏱ 0m ⏳ – 0%')
+})
+
+test("a subagent's requests do not move the main chat's cache rate", async ($, on) => {
+  const { r } = await session($, on)
+  await ask($)
+  r.usage = NONE
+  await ask($, { agentId: 'a1' })
+  expect(await row1($)).toBe('claude-opus-5-5 ● high ⏱ 0m ⏳ 60m 96%')
+})
+
+test('the cache rate goes with the cache timer when that is turned off in /config', { options: { showCache: false } }, async ($, on) => {
+  await session($, on)
+  await ask($)
+  expect(await row1($)).toBe('claude-opus-5-5 ● high ⏱ 0m')
+})
+
 test('a compaction that stands drops the clock; a skip, a precompute and a subagent\'s own compaction do not', async ($, on) => {
   const { clock, r } = await session($, on)
   await ask($)
@@ -351,11 +407,11 @@ test('the lifetime is read again at each refresh: a setting changed mid-session 
 
 // ── a narrow pane ────────────────────────────────────────────────────────────
 
-test('a narrow pane draws the same chip; the tokens are not drawn there, so the speed ends the row', async ($, on) => {
+test('a narrow pane draws the same chip, the cache rate included', async ($, on) => {
   const { clock } = await session($, on, { rateLimits: [] })
   expect(await chip($, 'terminal', 60)).toBe('⏳ –')
   await ask($)
-  expect(await row1($, 'terminal', 60)).toBe('opus-5-5 ● high ⏱ 0m ⏳ 5m ⚡ – t/s')
+  expect(await row1($, 'terminal', 60)).toBe('opus-5-5 ● high ⏱ 0m ⏳ 5m 96%')
   await clock.advance(5 * MIN)
   expect(await chip($, 'terminal', 60)).toBe('⏳ cold')
 })

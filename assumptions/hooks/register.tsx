@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Assumption } from '../types'
+import type { Assumption, PastCorrection } from '../types'
 
 const PANE = 'assumptions'
 const TOOL = 'mcp__assumptions__log_assumption'
@@ -11,6 +11,17 @@ const editing = atom({ plugin: 'assumptions', key: 'editing' } as const, null)
 const isWorking = atom({ plugin: 'assumptions', key: 'isWorking' } as const, false)
 const nextId = atom({ plugin: 'assumptions', key: 'nextId' } as const, 1)
 const showReviewed = atom({ plugin: 'assumptions', key: 'showReviewed' } as const, false)
+const steps = atom({ plugin: 'assumptions', key: 'steps' } as const, 0)
+
+// Set by session.start: this repo's corrections file, and the corrections read back from earlier sessions.
+let sessionId = ''
+let repo = ''
+let file = ''
+let past: PastCorrection[] = []
+// The person's latest prompt, so each assumption records which task it was made for.
+let task = ''
+const PAST_SHOWN = 10
+const PAST_KEPT = 100
 
 // After the last open assumption is reviewed, the panel closes after this pause.
 const CLOSE_DELAY_MS = 2_000
@@ -25,6 +36,52 @@ While you work, whenever you make a non-trivial assumption the user has not conf
 function short(text: string, n = 60): string {
   const one = text.replace(/\s+/g, ' ').trim()
   return one.length > n ? `${one.slice(0, n - 1)}…` : one
+}
+
+function sentence(text: string): string {
+  return text.replace(/[.\s]+$/, '')
+}
+
+function guidance(): string {
+  if (past.length === 0) return GUIDANCE
+  const lines = past.map(
+    p => `- Assumed: ${sentence(p.text)}. Correct: ${sentence(p.correction)} (${new Date(p.at).toISOString().slice(0, 10)}${p.task === undefined ? '' : `, task: "${p.task}"`})`,
+  )
+  return `${GUIDANCE}\n\n## Past corrections in this repo\nThe user corrected these assumptions in earlier sessions. Each fix belonged to the task it was made in, not to the repo as a whole. Apply one only when the current task is the same kind of work; otherwise ignore it:\n${lines.join('\n')}`
+}
+
+function verdicts(items: Assumption[]): string | undefined {
+  const lines = items.flatMap(a => {
+    if (a.status === 'right') return [`- A${a.id} right: ${a.text}`]
+    if (a.status !== 'wrong') return []
+    return [
+      a.correction === undefined
+        ? `- A${a.id} wrong (correction sent in chat): ${a.text}`
+        : `- A${a.id} wrong: ${sentence(a.text)}. Correct: ${a.correction}`,
+    ]
+  })
+  if (lines.length === 0) return undefined
+  return `## Assumption verdicts this session\nThe user reviewed these assumptions. Treat them as settled; do not reopen them:\n${lines.join('\n')}`
+}
+
+function readPast(text: string, session: string): PastCorrection[] {
+  return text
+    .split('\n')
+    .flatMap(line => {
+      try {
+        const p = JSON.parse(line) as PastCorrection
+        return typeof p.text === 'string' && typeof p.correction === 'string' && typeof p.at === 'number' ? [p] : []
+      } catch {
+        return []
+      }
+    })
+    .filter(p => p.session !== session)
+    .slice(-PAST_SHOWN)
+}
+
+function builtOn(a: Assumption, total: number): string {
+  const k = a.stepAt === undefined ? 0 : total - a.stepAt
+  return k > 0 ? `built on ${k} step${k === 1 ? '' : 's'}` : ''
 }
 
 function ago(ms: number): string {
@@ -74,12 +131,26 @@ async function closeIfDone($: EngineInterface): Promise<void> {
   })
 }
 
+/** Mark it wrong with the person's correction, and keep it in this repo's file for later sessions. */
+async function persist($: EngineInterface, a: Assumption, correction: string): Promise<void> {
+  await mark($, a.id, 'wrong', correction)
+  if (file === '') return
+  try {
+    const line: PastCorrection = { at: await $.clock.now(), session: sessionId, repo, id: a.id, text: a.text, why: a.why, task: a.task, correction }
+    const old = await $.fs.read(file).catch(() => '')
+    const lines = [...old.split('\n').filter(l => l.trim() !== ''), JSON.stringify(line)].slice(-PAST_KEPT)
+    await $.fs.write(file, `${lines.join('\n')}\n`)
+  } catch {
+    // The correction is already recorded and sent; only its memory for later sessions is lost.
+  }
+}
+
 /** Send a correction to Claude: into the running turn if one runs, else as a new prompt. */
 async function sendCorrection($: EngineInterface, a: Assumption, value: string): Promise<void> {
   const fix = value.trim()
   if (fix === '') return
   await update($, editing, () => null)
-  await mark($, a.id, 'wrong', fix)
+  await persist($, a, fix)
   const text = `Correction to assumption A${a.id} ("${a.text}"): ${fix}\nPlease adjust the work that depended on it.`
   if (await read($, isWorking)) {
     // Mid-turn: Claude reads it at its next step.
@@ -125,10 +196,21 @@ export const register: Register = on => {
       name: 'assumptions',
       description: 'Show the assumptions Claude made in this session',
     })
+    const home = ((await $.env.get('USERPROFILE').catch(() => undefined)) || (await $.env.get('HOME').catch(() => undefined)) || '').replace(/[\\/]$/, '')
+    sessionId = await $.session.id().catch(() => '')
+    const root = await $.session.root().catch(() => '')
+    if (home !== '' && root !== '') {
+      const top = await $.process
+        .run(['git', 'rev-parse', '--show-toplevel'], { cwd: root })
+        .then(r => (r.exitCode === 0 ? r.stdout.trim() : ''), () => '')
+      repo = (top || root).replace(/\\/g, '/')
+      file = `${home}/.claude/assumptions/${repo.replace(/[^A-Za-z0-9]/g, '-')}.jsonl`
+      // Read once per start: the guidance section must stay the same for the whole thread.
+      past = readPast(await $.fs.read(file).catch(() => ''), sessionId)
+    }
     // How many are still open, for session-board's recap chip: a mod cannot
     // read another mod's state, so it goes in a small file beside the board's
     // cards. Written only when the count changes; nothing reaches the model.
-    const home = ((await $.env.get('USERPROFILE').catch(() => undefined)) || (await $.env.get('HOME').catch(() => undefined)) || '').replace(/[\\/]$/, '')
     if (home !== '') {
       let last = ''
       $.clock.every(2_000, () => {
@@ -147,12 +229,35 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // Tell the model to log its assumptions.
+  // Tell the model to log its assumptions. The verdicts carry the user's reviews past a compaction.
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
+    const settled = verdicts(await read($, list))
     return {
-      sections: [...composed.sections, { id: 'assumptions:guidance', text: GUIDANCE, scope: 'session' as const }],
+      sections: [
+        ...composed.sections,
+        { id: 'assumptions:guidance', text: guidance(), scope: 'session' as const },
+        ...(settled === undefined ? [] : [{ id: 'assumptions:verdicts', text: settled, scope: 'session' as const }]),
+      ],
     }
+  })
+
+  // Count the work done after each assumption; the assumption tool itself is not a step.
+  on('tool.call', async ($, e, next) => {
+    if (e.tool === TOOL) return next(e)
+    const result = await next(e)
+    await update($, steps, n => n + 1)
+    return result
+  })
+
+  // A correction typed by hand into the prompt that Fix pre-filled (surfaces with no text field).
+  on('prompt.submit', async ($, e, next) => {
+    const m = /^Correction to assumption A(\d+) \(".*"\): ([\s\S]+)$/.exec(e.text)
+    const fix = m?.[2]?.trim() ?? ''
+    const a = m === null || fix === '' ? undefined : (await read($, list)).find(x => x.id === Number(m[1]))
+    if (a !== undefined) await persist($, a, fix)
+    else if (m === null && !e.text.startsWith('/')) task = short(e.text)
+    return next(e)
   })
 
   // The tool itself: store the assumption and answer at once.
@@ -172,7 +277,7 @@ export const register: Register = on => {
       id = n
       return n + 1
     })
-    const one: Assumption = { id, text, why, impact, status: 'open', at: await $.clock.now() }
+    const one: Assumption = { id, text, why, impact, status: 'open', at: await $.clock.now(), stepAt: await read($, steps), task: task === '' ? undefined : task }
     await update($, list, items => [...items, one])
     return { result: `Logged as A${id}. Carry on; the user will send a correction if it is wrong.` }
   })
@@ -203,13 +308,15 @@ export const register: Register = on => {
     if (open.length === 0 || e.props.hasSurvey) return next(e)
     const els = $.ui.resolve(e)
     const { Box, Button, Text } = els
-    const Input = 'Input' in els ? els.Input : undefined
+    // The mobile app draws no text field, whatever the element table holds: there, Fix pre-fills the prompt.
+    const Input = e.surface !== 'mobile' && 'Input' in els ? els.Input : undefined
     const cur = open[0]!
     const hot = cur.impact === 'high'
     const edit = await read($, editing)
     const t = await $.clock.now()
     const isFixing = edit === cur.id && Input !== undefined
     const accent = hot ? 'yellow' : 'gray'
+    const built = builtOn(cur, await read($, steps))
 
     const header = (
       <Box key="as-card-head">
@@ -220,6 +327,7 @@ export const register: Register = on => {
           {'  '}
           {hot ? 'high impact · ' : ''}
           {cur.at !== undefined ? ago(t - cur.at) : `A${cur.id}`}
+          {built !== '' && ` · ${built}`}
         </Text>
       </Box>
     )
@@ -293,8 +401,8 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const els = $.ui.resolve(e)
     const { Box, Button, Text } = els
-    // Mobile draws no text field: there, Fix pre-fills the prompt instead.
-    const Input = 'Input' in els ? els.Input : undefined
+    // The mobile app draws no text field, whatever the element table holds: there, Fix pre-fills the prompt.
+    const Input = e.surface !== 'mobile' && 'Input' in els ? els.Input : undefined
     const items = await read($, list)
     const edit = await read($, editing)
 
@@ -310,6 +418,7 @@ export const register: Register = on => {
     const open = queue(items)
     const reviewed = items.filter(a => a.status !== 'open').reverse()
     const showAll = await read($, showReviewed)
+    const total = await read($, steps)
 
     const openRow = (a: Assumption) => {
       const hot = a.impact === 'high'
@@ -321,6 +430,7 @@ export const register: Register = on => {
               A{a.id}  {a.text}
             </Text>
             {hot && <Text color="yellow">   ⚠ high</Text>}
+            {builtOn(a, total) !== '' && <Text dimColor>   · {builtOn(a, total)}</Text>}
           </Text>
           {a.why !== undefined && (
             <Text>

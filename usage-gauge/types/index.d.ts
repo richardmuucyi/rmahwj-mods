@@ -51,6 +51,11 @@ export type Gauge = {
    * compaction's own `tokensAfter` plus the overhead from the context breakdown. The engine's real figure replaces it.
    */
   context?: { pct: number; tokens?: number; window: number; estimated?: boolean }
+  /**
+   * The token count at which auto-compaction runs, read from a summary breakdown once per main turn and at a compaction.
+   * The context bar fills toward it. Absent: auto-compaction is off, or no breakdown has said yet.
+   */
+  compactAt?: number
   fiveHour?: Limit
   weekly?: Limit
   /**
@@ -64,11 +69,10 @@ export type Gauge = {
   now: number
   /** Output tokens per second of the latest main-loop reply. */
   tps?: number
-  /** Session totals: input (uncached + cache-written + cache-read), output, and the cache-read part of input. */
+  /** The main chat's input over the session (uncached + cache-written + cache-read), and the cache-read part of it. Subagents' requests are not in them. */
   tokensIn: number
-  tokensOut: number
   cacheRead: number
-  /** A main-loop request has gone out: before it, cost, speed and tokens stay hidden. */
+  /** A main-loop request has gone out: before it, cost and speed stay hidden. */
   ran?: boolean
   /**
    * When the request that last wrote or read the main conversation's prompt cache was sent (`$.clock.now()`

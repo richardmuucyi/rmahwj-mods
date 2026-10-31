@@ -266,6 +266,13 @@ test('=== and ==x are not triggers: they reach Claude as typed', async ($, on) =
   expect(r.calls.length).toBe(0)
 })
 
+test('0.14.0: the ++ modes left for /enhance and /goal-draft, so a ++ prompt reaches Claude as typed', async ($, on) => {
+  const r = rig($, on, [PLEASE])
+  for (const typed of ['++ fix the login bug', '++d fix the login bug', '++p! write the guide', '++goal make the tests pass']) await r.submit(typed)
+  expect(r.seen).toEqual(['++ fix the login bug', '++d fix the login bug', '++p! write the guide', '++goal make the tests pass'])
+  expect(r.calls.length).toBe(0)
+})
+
 test('a == from another plugin or a notification is not ours to answer', async ($, on) => {
   const r = rig($, on, [PLEASE])
   await $.prompt.submit({ text: '== hi there', origin: { kind: 'plugin', name: 'someone-else' }, wait: false })

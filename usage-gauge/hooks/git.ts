@@ -94,7 +94,7 @@ export function slotsOf(g: Git, withUntracked: boolean): Slot[] {
 }
 
 /** Which of the optional row-1 items the person wants, and whether to fetch. Anything but an explicit false is on. */
-export type Show = { time: boolean; cost: boolean; speed: boolean; tokens: boolean; git: boolean; cache: boolean; fetch: boolean }
+export type Show = { time: boolean; cost: boolean; speed: boolean; git: boolean; cache: boolean; fetch: boolean }
 
 export function showOf(options: Readonly<Record<string, unknown>>): Show {
   const on = (v: unknown): boolean => v !== false
@@ -102,7 +102,6 @@ export function showOf(options: Readonly<Record<string, unknown>>): Show {
     time: on(options.showTime),
     cost: on(options.showCost),
     speed: on(options.showSpeed),
-    tokens: on(options.showTokens),
     git: on(options.showGit),
     cache: on(options.showCache),
     fetch: on(options.fetchRemote),
@@ -110,31 +109,31 @@ export function showOf(options: Readonly<Record<string, unknown>>): Show {
 }
 
 /**
- * Below this many columns the rows use short labels and drop the token counts and the weekly reset. The widest wide row,
- * every item at its longest, is 113 cells (tests/width.test.tsx measures it), and a row wider than the surface wraps a
- * meter or the cache chip onto a third line. 115 leaves 2 to spare.
+ * Below this many columns the rows use short labels and drop the untracked slot and the weekly reset. The widest wide
+ * row, every item at its longest, is 113 cells (tests/width.test.tsx measures it), and a row wider than the surface wraps
+ * a meter or the cache chip onto a third line. 115 leaves 2 to spare.
  */
 export const NARROW_BELOW = 115
 
 /**
- * With the git slots on the row, row 1 at its longest (the clock chip showing "cold", every count at 99+, the model and
- * effort longest) is this many cells BEFORE the branch name: 80 in a narrow pane, 101 in a wide one, 120 in a wide one
- * with the token counts. The branch name is the flexible item. It takes the room that is left, 2 cells to spare, up to
- * BRANCH_MAX, and a pane with less than BRANCH_MIN cells for it draws none. The token counts give way to the git slots:
- * they wait for TOKENS_FROM columns, the 120 plus the 2 to spare plus a branch of 8 (and its space). The untracked slot
+ * With the git slots on the row, row 1 at its longest (the clock chip showing "cold 100%", every count at 99+, the model
+ * and effort longest) is this many cells BEFORE the branch name: 72 in a narrow pane without the speed, 85 with it, 106
+ * in a wide one. The branch name is the flexible item. It takes the room that is left, 2 cells to spare, up to
+ * BRANCH_MAX, and a pane with less than BRANCH_MIN cells for it draws none. The speed gives way to the git slots in the
+ * narrowest panes: it waits for SPEED_FROM columns, the 85, where the row is as wide as the pane. The untracked slot
  * needs no wait: every wide pane has room for it. tests/width.test.tsx measures all of these on the drawn rows.
  */
-const FIXED_NARROW = 80
-const FIXED_WIDE = 101
-const FIXED_WIDE_TOKENS = 120
+const FIXED_NARROW = 72
+const FIXED_NARROW_SPEED = 85
+const FIXED_WIDE = 106
 const SPARE = 2
 export const BRANCH_MAX = 16
 export const BRANCH_MIN = 4
-export const TOKENS_FROM = FIXED_WIDE_TOKENS + SPARE + 1 + 8
+export const SPEED_FROM = FIXED_NARROW_SPEED
 
 export type Layout = {
   narrow: boolean
-  tokens: boolean
+  speed: boolean
   untracked: boolean
   /** Cells the branch name may take; 0: none is drawn. */
   branch: number
@@ -143,13 +142,13 @@ export type Layout = {
 /**
  * What the pane has room for. `columns` is the surface's own measure; none, or 0, is a surface that has not measured and
  * is drawn in full. `git` is whether the slots are on the row at all: without them nothing gives way, so the thresholds
- * are the ones the gauge had before the slots (narrow below 115, tokens in every wide row).
+ * are the ones the gauge had before the slots (narrow below 115, the speed in every pane).
  */
-export function layoutOf(columns: number | undefined, git: boolean, tokens: boolean): Layout {
+export function layoutOf(columns: number | undefined, git: boolean): Layout {
   const known = columns !== undefined && columns > 0
   const narrow = known && columns < NARROW_BELOW
-  const withTokens = tokens && !narrow && (!git || !known || columns >= TOKENS_FROM)
-  const fixed = narrow ? FIXED_NARROW : withTokens ? FIXED_WIDE_TOKENS : FIXED_WIDE
+  const speed = !git || !known || columns >= SPEED_FROM
+  const fixed = !narrow ? FIXED_WIDE : speed ? FIXED_NARROW_SPEED : FIXED_NARROW
   const room = known ? Math.min(BRANCH_MAX, columns - SPARE - fixed - 1) : BRANCH_MAX
-  return { narrow, tokens: withTokens, untracked: !narrow, branch: room >= BRANCH_MIN ? room : 0 }
+  return { narrow, speed, untracked: !narrow, branch: room >= BRANCH_MIN ? room : 0 }
 }

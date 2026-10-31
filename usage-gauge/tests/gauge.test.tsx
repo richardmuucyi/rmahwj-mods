@@ -57,7 +57,7 @@ async function coloured($: Engine, surface: 'terminal' | 'desktop', key: 'ug-row
 const FILL = 'rate_limit_fill'
 
 for (const surface of ['terminal', 'desktop'] as const) {
-  test(`two rows: model + effort, time, cost, speed, tokens; three meters with resets (${surface})`, async ($, on) => {
+  test(`two rows: model + effort, time and cache, cost, speed; three meters with resets (${surface})`, async ($, on) => {
     const clock = mock.clock(on, { now: START + 72 * 60_000 })
     let fiveHour = 71
     on('session.usage', () => ({
@@ -104,13 +104,14 @@ for (const surface of ['terminal', 'desktop'] as const) {
     })
 
     let r = await rows($, surface)
-    // The cache sits in the clock chip, after the session time: the request cached, and 2 s of the hour went on the reply (rounded up, still 60m).
-    expect(r.r1).toBe('claude-opus-4-1-20250805 ● high ⏱ 1h 12m ⏳ 60m $3.84 ⚡ 62 t/s in 100k out 124')
+    // The cache sits in the clock chip, after the session time: the request cached, and 2 s of the hour went on the reply
+    // (rounded up, still 60m). 90k of the 100k input came from the cache: 90%.
+    expect(r.r1).toBe('claude-opus-4-1-20250805 ● high ⏱ 1h 12m ⏳ 60m 90% $3.84 ⚡ 62 t/s')
     expect(r.r2).toBe('context ▰▰▰▰▱▱▱▱▱▱ 42% 84k 5 hour ▰▰▰▰▰▰▰▱▱▱ 71% ↻ 2:40pm weekly ▰▱▱▱▱▱▱▱▱▱ 18% ↻ Mon 19 Oct 9am')
     // The engine's own hint line stays, beneath the rows.
     expect(r.own).toBeDefined()
 
-    // Cost, speed and tokens are plain text: no colour of their own (the chips carry theirs on a background).
+    // Cost, speed and the cache rate are plain text: no colour of their own (the chips carry theirs on a background).
     expect(await coloured($, surface, 'ug-row1')).toEqual([])
     // The meters use Claude Code's theme keys: its own bar fill below 70%, warning from 70%.
     expect(await coloured($, surface, 'ug-row2')).toEqual([
@@ -195,7 +196,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     }
   })
 
-  test(`before the first request: model and starting effort, a dash for the cache, no cost, speed or tokens (${surface})`, async ($, on) => {
+  test(`before the first request: model and starting effort, a dash for the cache, no cost, speed or cache rate (${surface})`, async ($, on) => {
     mock.clock(on, { now: START })
     on('session.usage', () => ({ value: { startedAt: START, context: { window: 200_000 }, rateLimits: [] } }))
     on('session.start', (_$, e) => ({ cwd: e.cwd }))

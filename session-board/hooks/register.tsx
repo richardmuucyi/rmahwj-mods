@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, RenderElement } from 'claude-code'
+import type { EngineInterface, PluginState, Register, RenderElement } from 'claude-code'
 
 import type { AgentRow, BgRow, BoardEntry, BoardStatus, CardTask, FileKind, FileRow, TaskKind, ToolKind, TurnRecord } from '../types'
 import {
@@ -90,7 +90,9 @@ const COLOR: Record<BoardStatus, string> = {
   closed: 'gray',
 }
 
-const CARD_VERSION = 4
+const CARD_VERSION = 5
+// The card's `edits`: the newest this many files.
+const EDITS_MAX = 200
 const REFRESH_MS = 5_000
 const HEARTBEAT_MS = 30_000
 // No heartbeat for this long: the session closed, crashed, or the computer slept.
@@ -199,6 +201,7 @@ function parseCard(text: string): BoardEntry | undefined {
       c.progress && typeof c.progress.done === 'number' && typeof c.progress.total === 'number' && c.progress.total > 0
         ? { done: c.progress.done, total: c.progress.total }
         : undefined,
+    edits: Array.isArray(c.edits) ? c.edits.filter((x): x is string => typeof x === 'string') : undefined,
   } as BoardEntry
 }
 
@@ -344,10 +347,12 @@ function derive(t: number): void {
   // Every phase, not only "background": a reload mid-turn restores the jobs, with their real ids and start times, from it.
   const list = [...bgList()].map(([id, x]) => ({ id, label: x.label, what: x.what, kind: x.kind, since: x.since, isExact: x.isExact }))
   const bg = list.length > 0 ? list : undefined
-  if (status === me.status && activity === me.activity && same(tasks, me.tasks) && same(progress, me.progress) && same(bg, me.bg)) return
+  const all = editList()
+  const edits = all.length > 0 ? all : undefined
+  if (status === me.status && activity === me.activity && same(tasks, me.tasks) && same(progress, me.progress) && same(bg, me.bg) && same(edits, me.edits)) return
   // A working card keeps the time its turn started; a new tool is no change of state.
   const changedAt = status === me.status ? me.changedAt : t
-  me = { ...me, v: CARD_VERSION, status, activity, tasks, progress, bg, changedAt, seenAt: t }
+  me = { ...me, v: CARD_VERSION, status, activity, tasks, progress, bg, edits, changedAt, seenAt: t }
   isDirty = true
 }
 
@@ -429,7 +434,8 @@ function flush($: EngineInterface): Promise<void> {
   const path = `${dir}/${me.id}.json`
   const text = JSON.stringify(me)
   // This session's own state for the strip: redrawn at once, not on the 5 s refresh.
-  const mine = { status: me.status as string, text: me.status === 'replied' ? 'Done' : label(me) }
+  // The ◈ chip beside the pill names the background work, so the pill says only "Waiting".
+  const mine = { status: me.status as string, text: me.status === 'replied' ? 'Done' : me.status === 'background' ? 'Waiting' : label(me) }
   void update($, self, v => (v && v.status === mine.status && v.text === mine.text ? v : mine)).catch(() => undefined)
   writing = writing.then(() => $.fs.write(path, text)).catch(() => undefined)
   return writing
@@ -510,6 +516,8 @@ const MAX_HUNK_LINES = 400
 const DIFF_SHOWN = 120
 let turnChanges = new Map<string, Change>()
 let sessionChanges = new Map<string, Change>()
+/** The card's edits from before a hot reload, which empties sessionChanges. */
+let restoredEdits: string[] = []
 /** Absolute path by key, for asking git about a file. */
 const absByKey = new Map<string, string>()
 
@@ -665,7 +673,16 @@ function noteFile(tool: string, args: Record<string, unknown>, rec: Record<strin
   }
   merge(turnChanges, c)
   merge(sessionChanges, c)
+  // Newest last, so the card's cap drops the oldest.
+  const merged = sessionChanges.get(key)!
+  sessionChanges.delete(key)
+  sessionChanges.set(key, merged)
   return true
+}
+
+/** The files this session edited, for its card: the restored ones (older), then its own calls', newest last. */
+function editList(): string[] {
+  return [...restoredEdits.filter(k => !sessionChanges.has(k)), ...sessionChanges.keys()].slice(-EDITS_MAX)
 }
 
 /** Runs git in the session's folder; its output, or undefined when it failed. */
@@ -835,6 +852,7 @@ function settleTurnFiles($: EngineInterface): void {
     if (!base) return
     const cur = await snap($)
     if (!cur || turnBase !== tb) return
+    lastSnap = cur
     gitTurn = compare(base, cur)
     if (sessionBase) {
       const sb = await sessionBase
@@ -900,6 +918,7 @@ function resetLive($: EngineInterface): void {
   agents.clear()
   turnChanges = new Map()
   sessionChanges = new Map()
+  restoredEdits = []
   gitTurn = []
   gitSession = []
   turnBase = undefined
@@ -1022,6 +1041,38 @@ async function pruneLogs($: EngineInterface): Promise<void> {
     if (!Number.isFinite(at) || at >= cutoff) continue
     const path = `${root}/${f.name}`
     const argv = isWindows ? ['cmd', '/c', 'rd', '/s', '/q', path.replace(/\//g, '\\')] : ['rm', '-rf', '--', path]
+    await $.process.run(argv, { timeoutMs: 10_000 }).catch(() => undefined)
+  }
+}
+
+const CARD_KEEP_MS = 7 * 86_400_000
+const CARD_FILE = /^(.+)\.(json|assume)$/
+
+/**
+ * Removes the card and assumptions files of other sessions untouched for
+ * CARD_KEEP_MS. One fresh file keeps the whole session: a live session's
+ * .assume is rewritten only when its count changes, so it can be old while
+ * the card still heartbeats.
+ */
+async function pruneCards($: EngineInterface): Promise<void> {
+  if (dir === '') return
+  const entries = await $.fs.list(dir).catch(() => [])
+  const cutoff = (await $.clock.now()) - CARD_KEEP_MS
+  const sessions = new Map<string, { paths: string[]; isOld: boolean }>()
+  for (const f of entries) {
+    const m = f.kind === 'file' ? CARD_FILE.exec(f.name) : null
+    if (!m || m[1] === me?.id) continue
+    const s = sessions.get(m[1]) ?? { paths: [], isOld: true }
+    // mtimeMs 0 is an unknown age: keep.
+    s.isOld &&= f.mtimeMs > 0 && f.mtimeMs < cutoff
+    s.paths.push(`${dir}/${f.name}`)
+    sessions.set(m[1], s)
+  }
+  const paths = [...sessions.values()].filter(s => s.isOld).flatMap(s => s.paths)
+  const isWindows = /^[A-Za-z]:/.test(dir)
+  for (let i = 0; i < paths.length; i += 40) {
+    const chunk = paths.slice(i, i + 40)
+    const argv = isWindows ? ['cmd', '/c', 'del', '/f', '/q', ...chunk.map(p => p.replace(/\//g, '\\'))] : ['rm', '-f', '--', ...chunk]
     await $.process.run(argv, { timeoutMs: 10_000 }).catch(() => undefined)
   }
 }
@@ -1612,8 +1663,16 @@ function diffView(lines: string[], more: number, isNew: boolean, width: number, 
   return out
 }
 
-/** The panel's files view: this turn's (or the session's) files, as a folder tree with git-style stats and diffs. */
-function filesPane($: EngineInterface, fv: FilesState, t: number, width: number, ui: Kit): RenderElement {
+/** Folder labels grouped like the strip's pills: "vault ×2, iams-ups". */
+function grouped(labels: readonly string[]): string {
+  const n = new Map<string, number>()
+  for (const x of labels) n.set(x, (n.get(x) ?? 0) + 1)
+  return [...n].map(([name, k]) => (k > 1 ? `${name} ×${k}` : name)).join(', ')
+}
+
+/** The panel's files view: this turn's (or the session's) files, as a folder tree with git-style stats and diffs.
+ *  `also`: by file key, the other live sessions that edited it too. */
+function filesPane($: EngineInterface, fv: FilesState, t: number, width: number, also: ReadonlyMap<string, string>, ui: Kit): RenderElement {
   const { Box, Text, Button } = ui
   const tab = (scope: 'turn' | 'session', text: string) => {
     const isOn = fv.scope === scope
@@ -1664,7 +1723,8 @@ function filesPane($: EngineInterface, fv: FilesState, t: number, width: number,
       r.kind === 'deleted' ? (r.minus ? `deleted · ${r.minus} lines` : 'deleted') : r.kind === 'renamed' && !plus && !minus ? 'renamed' : `${plus ? `+${plus}` : ''}${plus && minus ? ' ' : ''}${minus ? `−${minus}` : ''}`
     const [g, rd, empty] = statBar(plus, minus, biggest)
     const label = r.kind === 'renamed' && r.from ? `${name} ← ${r.from}` : name
-    const nameRoom = Math.max(10, width - branch.length - statText.length - 14)
+    const alsoText = also.has(r.key) ? ` also: ${also.get(r.key)}` : ''
+    const nameRoom = Math.max(10, width - branch.length - statText.length - alsoText.length - 14)
     return (
       <Box key={`sb-file-${r.key}`} flexDirection="column">
         <Button key={`sb-file-btn-${r.key}`} plain onPress={() => void toggleDiff($, r.key)}>
@@ -1672,6 +1732,7 @@ function filesPane($: EngineInterface, fv: FilesState, t: number, width: number,
             <Text dimColor>{branch}</Text>
             <Text bold color={m.color}>{`${m.mark} `}</Text>
             <Text bold={isOpen} color={r.kind === 'deleted' ? 'red' : undefined}>{midShort(label, nameRoom)}</Text>
+            {alsoText !== '' && <Text color="yellow" dimColor>{alsoText}</Text>}
             <Text>{'  '}</Text>
             {r.kind === 'deleted' || r.kind === 'renamed' ? (
               <Text color={m.color}>{statText}</Text>
@@ -1898,6 +1959,49 @@ function uncommittedMine(): { count: number; paths: string[] } {
   return { count: mine.size, paths: [...mine.values()].sort() }
 }
 
+type Overlap = NonNullable<PluginState['session-board']['alerts']['overlap']>
+const OVERLAP_GIT_MS = 30_000
+let overlapGitAt = -Infinity
+/** The candidate files git last checked, and whether the strip showed any: git runs again only for new candidates or
+ *  to see a shown file clear. */
+let overlapChecked = ''
+let isOverlapShown = false
+
+/** Files this session and another live session both edited. Where git tracks a file, only while it is uncommitted:
+ *  a commit by either session clears it. */
+async function overlapOf($: EngineInterface, others: readonly BoardEntry[], cards: readonly BoardEntry[], t: number): Promise<Overlap | undefined> {
+  const mine = new Set(editList())
+  const byKey = new Map<string, BoardEntry[]>()
+  for (const c of others) {
+    if (c.status === 'gone' || c.status === 'closed') continue
+    for (const k of new Set(c.edits ?? [])) if (mine.has(k)) byKey.set(k, [...(byKey.get(k) ?? []), c])
+  }
+  const candidates = JSON.stringify([...byKey.keys()].sort())
+  // Nothing else runs git when the other session commits.
+  if (byKey.size > 0 && (isOverlapShown || candidates !== overlapChecked) && t - overlapGitAt >= OVERLAP_GIT_MS) {
+    overlapGitAt = t
+    overlapChecked = candidates
+    await refreshGit($)
+  }
+  const cur = lastSnap
+  const top = typeof gitTop === 'string' ? folderKey(gitTop) : undefined
+  const dirty = cur ? new Set([...cur.sigs.keys()].map(rel => folderKey(`${cur.top}/${rel}`))) : undefined
+  const files = [...byKey].filter(([k]) => top === undefined || dirty === undefined || !k.startsWith(`${top}/`) || dirty.has(k))
+  isOverlapShown = files.length > 0
+  if (files.length === 0) return undefined
+  const label = (c: BoardEntry) => folderLabel(c.folder, c.project, cards)
+  const sessions = new Map(files.flatMap(([, cs]) => cs.map(c => [c.id, c] as const)))
+  const names = new Map<string, { name: string; n: number }>()
+  for (const c of [...sessions.values()].sort((a, b) => a.changedAt - b.changedAt)) {
+    const name = label(c)
+    names.set(name, { name, n: (names.get(name)?.n ?? 0) + 1 })
+  }
+  return {
+    files: files.map(([key, cs]) => ({ key, path: relPath(absByKey.get(key) ?? key), with: cs.map(label) })),
+    names: [...names.values()],
+  }
+}
+
 /** Background shells and monitors, and subagents still running, by name. */
 function jobLines(): string[] {
   const subagents = [...agents.values()].filter(a => a.status === 'running' && a.background !== true).map(a => `subagent ${a.type} · ${shortModel(a.model) ?? 'agent'}`)
@@ -2012,11 +2116,13 @@ export const register: Register = (on, options) => {
       }
       me = { ...me, changedAt: prior.changedAt }
       restoredProgress = prior.progress
+      restoredEdits = prior.edits ?? []
     }
     derive(at)
     isDirty = true
     await flush($)
     void pruneLogs($).catch(() => undefined)
+    void pruneCards($).catch(() => undefined)
     void pruneGuardLogs(guardIo($)).catch(() => undefined)
     void countToday($).catch(() => undefined)
     await $.command.register({ name: 'sessions', description: 'Show all Claude Code sessions, this folder first' }).catch(() => undefined)
@@ -2060,7 +2166,7 @@ export const register: Register = (on, options) => {
         const good = new Map<string, BoardEntry>()
         for (const f of files) {
           if (f.kind !== 'file' || !f.name.endsWith('.json')) continue
-          // Untouched past every limit: an ended session. Skip the read (the folder only grows).
+          // Untouched past every limit: an ended session. Skip the read.
           if (f.mtimeMs > 0 && t - f.mtimeMs > STALE_FILE_MS) continue
           const text = await $.fs.read(`${dir}/${f.name}`).catch(() => undefined)
           let c: BoardEntry | undefined
@@ -2109,7 +2215,8 @@ export const register: Register = (on, options) => {
           waiting: others.filter(c => c.status === 'background').length,
           idle: others.filter(c => c.status === 'open' || c.status === 'stopped').length,
         }
-        const fresh = { needs: group(needs), replied: group(replied), quiet }
+        const overlap = await overlapOf($, others, cards, t).catch(() => undefined)
+        const fresh = { needs: group(needs), replied: group(replied), quiet, ...(overlap ? { overlap } : {}) }
         // Drawn in the strip above the prompt (below), not the status line.
         const prev = await read($, alerts)
         if (JSON.stringify(prev) !== JSON.stringify(fresh)) await update($, alerts, () => fresh)
@@ -2588,6 +2695,17 @@ export const register: Register = (on, options) => {
     // Every item of the group touches the next (no gaps), like the current group's pills do.
     const groupItems = [...pills, ...quietItems]
     const bgEl = bgN > 0 && statusChip('sb-bg', COLOR.background, bgChipText(l.bgKinds, bgN, false, oldest))
+    // Files another live session edited too: the last chip of the others group; a press opens the files view.
+    const ov = a.overlap && a.overlap.files.length > 0 ? a.overlap : undefined
+    const overlapChip = (text: string) =>
+      ov && (
+        <Button key="sb-overlap" plain onPress={() => void openFiles($)}>
+          {statusChip('sb-overlap-chip', 'yellow', text)}
+        </Button>
+      )
+    const ovRest = ov ? ov.names.slice(2).reduce((sum, g) => sum + g.n, 0) : 0
+    const ovNames = ov ? [...ov.names.slice(0, 2).map(named), ...(ovRest > 0 ? [`+${ovRest}`] : [])].join(', ') : ''
+    const ovWhat = ov ? (ov.files.length === 1 ? baseName(ov.files[0]!.path) : `${ov.files.length} files`) : ''
     // A narrow terminal (a split pane): counts instead of folder names, so the row stays short instead of breaking
     // into one-letter stripes. The same two label chips and the same "│" as the wide row, the status as its glyph only.
     if (e.props.bodyColumns < 60) {
@@ -2607,6 +2725,7 @@ export const register: Register = (on, options) => {
               {quietItems}
             </Text>
           )}
+          {overlapChip(`⚠${ov?.files.length ?? 0}`)}
           <Text>{'  '}</Text>
           <Button key="sb-strip-open" plain onPress={() => $.ui.open({ id: PANE, title: 'Sessions', closeOnEscape: true })}>
             <Text color={LINK}>sessions ›</Text>
@@ -2644,6 +2763,7 @@ export const register: Register = (on, options) => {
             {groupItems}
           </Text>
         )}
+        {overlapChip(`⚠ ${ovWhat} · ${ovNames}`)}
         <Text>   </Text>
         <Button key="sb-strip-open" plain onPress={() => $.ui.open({ id: PANE, title: 'Sessions', closeOnEscape: true })}>
           <Text color={LINK}>sessions ›</Text>
@@ -2681,10 +2801,11 @@ export const register: Register = (on, options) => {
       )
     }
     if (fv.view === 'files') {
+      const also = new Map(((await read($, alerts)).overlap?.files ?? []).map(f => [f.key, grouped(f.with)]))
       return (
         <Box flexDirection="column">
           {tabs}
-          {filesPane($, fv, t, width, { Box, Text, Button })}
+          {filesPane($, fv, t, width, also, { Box, Text, Button })}
         </Box>
       )
     }

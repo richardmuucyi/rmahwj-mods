@@ -5,8 +5,8 @@ import type { On } from 'claude-code'
 import { fakeRepo, stubGit, subcommand } from './repo'
 import type { Counts, Repo } from './repo'
 
-// The git chip: the branch, then ↓ commits to pull, ± files to commit, ↑ commits to push in three fixed places, on row 1
-// after the token counts. The cache timer is not a chip of its own any more: it sits in the clock chip, "⏱ 1h 12m ⏳ 60m".
+// The git chip: the branch, then ↓ commits to pull, ± files to commit, ↑ commits to push in three fixed places, at the
+// end of row 1. The cache timer is not a chip of its own any more: it sits in the clock chip, "⏱ 1h 12m ⏳ 60m 90%".
 // The chip only reads the repository (status every 15 s and after each turn, a fetch every
 // 5 minutes so ↓ is current), and the person can turn the slots, the fetch and each other row-1 item off in /config.
 
@@ -113,16 +113,15 @@ async function start($: Engine, on: On, surface: Surface, repo: Repo | undefined
   }
 }
 
-/** Row 1 up to the tokens: the model, the clock chip (session time and cache), the cost and the speed. */
-const HEAD = 'claude-opus-4-1-20250805 ● high ⏱ 1h 12m ⏳ 60m $3.84 ⚡ 62 t/s'
-const TOKENS = 'in 100k out 124'
+/** Row 1 before the git chip: the model, the clock chip (session time, cache timer and cache rate), the cost and the speed. */
+const HEAD = 'claude-opus-4-1-20250805 ● high ⏱ 1h 12m ⏳ 60m 90% $3.84 ⚡ 62 t/s'
 
 for (const surface of ['terminal', 'desktop'] as const) {
-  test(`the branch, then three slots, after the tokens: ↓ to pull, ± to commit, ↑ to push (${surface})`, async ($, on) => {
+  test(`the branch, then three slots, at the end of the row: ↓ to pull, ± to commit, ↑ to push (${surface})`, async ($, on) => {
     const repo = fakeRepo({ behind: 2, ahead: 1, modified: 3, staged: 1 })
     const gauge = await start($, on, surface, repo)
     await gauge.pass(0)
-    expect(await gauge.row1()).toBe(`${HEAD} ${TOKENS} main ↓2 ±4 ↑1`)
+    expect(await gauge.row1()).toBe(`${HEAD} main ↓2 ±4 ↑1`)
     // The rows around it are the ones the gauge always drew.
     expect(await gauge.row2()).toBe('context ▰▰▰▰▱▱▱▱▱▱ 42% 84k 5 hour ▰▰▰▰▰▰▰▱▱▱ 71% ↻ 2:40pm weekly ▰▱▱▱▱▱▱▱▱▱ 18% ↻ Mon 19 Oct 9am')
   })
@@ -131,7 +130,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const repo = fakeRepo({ modified: 4, untracked: 2 })
     const gauge = await start($, on, surface, repo)
     await gauge.pass(0)
-    expect(await gauge.row1()).toBe(`${HEAD} ${TOKENS} main ↓0 ±4 ?2 ↑0`)
+    expect(await gauge.row1()).toBe(`${HEAD} main ↓0 ±4 ?2 ↑0`)
     // They are not counted in ±: a repository can leave big files untracked on purpose, and a ± that never reached zero would say nothing.
     expect(await gauge.slots()).toEqual([['↓0', '', true], ['±4', '', false], ['?2', '', true], ['↑0', '', true]])
   })
@@ -139,7 +138,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
   test(`a clean repository is three dim zeros, never a missing chip (${surface})`, async ($, on) => {
     const gauge = await start($, on, surface, fakeRepo())
     await gauge.pass(0)
-    expect(await gauge.row1()).toBe(`${HEAD} ${TOKENS} main ↓0 ±0 ↑0`)
+    expect(await gauge.row1()).toBe(`${HEAD} main ↓0 ±0 ↑0`)
     expect(await gauge.slots()).toEqual([['↓0', '', true], ['±0', '', true], ['↑0', '', true]])
   })
 
@@ -184,7 +183,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     repo.isRepo = false
     const gauge = await start($, on, surface, repo)
     await gauge.pass(0)
-    expect(await gauge.row1()).toBe(`${HEAD} ${TOKENS}`)
+    expect(await gauge.row1()).toBe(`${HEAD}`)
     // It stays quiet: no fetch from a folder that is no repository.
     await gauge.pass(10 * MIN)
     expect(repo.fetches).toBe(0)
@@ -194,7 +193,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     on('process.run', () => ({ deny: 'spawn git ENOENT' }))
     const gauge = await start($, on, surface, undefined)
     await gauge.pass(0)
-    expect(await gauge.row1()).toBe(`${HEAD} ${TOKENS}`)
+    expect(await gauge.row1()).toBe(`${HEAD}`)
   })
 
   test(`a git that stops answering leaves the last counts; one that says "not a repository" clears them (${surface})`, async ($, on) => {
@@ -245,9 +244,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const gauge = await start($, on, surface, fakeRepo())
     await gauge.pass(0)
     const raw = await gauge.raw1()
-    expect(raw).toContain('⏱ 1h 12m ⏳ 60m')
+    expect(raw).toContain('⏱ 1h 12m ⏳ 60m 90%')
     // ...and the chip is set apart from the cost by a gap.
-    expect(raw).toContain('⏳ 60m   $3.84')
+    expect(raw).toContain('⏳ 60m 90%   $3.84')
   })
 
   // ── the branch ─────────────────────────────────────────────────────────────
@@ -255,7 +254,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
   test(`the branch is plain text before the slots: no colour, not dim (${surface})`, async ($, on) => {
     const gauge = await start($, on, surface, fakeRepo({ branch: 'feature/login', behind: 1 }))
     await gauge.pass(0)
-    expect(await gauge.row1()).toBe(`${HEAD} ${TOKENS} feature/login ↓1 ±0 ↑0`)
+    expect(await gauge.row1()).toBe(`${HEAD} feature/login ↓1 ±0 ↑0`)
     expect(await gauge.leaf('feature/login')).toEqual(['', false])
     // One space between the branch and ↓, as between the slots.
     expect(await gauge.raw1()).toContain('feature/login ↓1 ±0 ↑0')
@@ -264,13 +263,13 @@ for (const surface of ['terminal', 'desktop'] as const) {
   test(`a branch with no upstream still has its name: the dashes stand where ↓ and ↑ would (${surface})`, async ($, on) => {
     const gauge = await start($, on, surface, fakeRepo({ branch: 'feature-x', ahead: null, modified: 3 }))
     await gauge.pass(0)
-    expect(await gauge.row1()).toBe(`${HEAD} ${TOKENS} feature-x ↓– ±3 ↑–`)
+    expect(await gauge.row1()).toBe(`${HEAD} feature-x ↓– ±3 ↑–`)
   })
 
   test(`a detached HEAD draws the commit's short hash for the branch (${surface})`, async ($, on) => {
     const gauge = await start($, on, surface, fakeRepo({ detached: true }))
     await gauge.pass(0)
-    expect(await gauge.row1()).toBe(`${HEAD} ${TOKENS} aaaaaaa ↓0 ±0 ↑0`)
+    expect(await gauge.row1()).toBe(`${HEAD} aaaaaaa ↓0 ±0 ↑0`)
   })
 
   test(`the branch follows the checkout: a switch shows on the next look (${surface})`, async ($, on) => {
@@ -286,8 +285,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
   test(`a pane too narrow for a branch of 4 cells draws the slots without it (${surface})`, async ($, on) => {
     const gauge = await start($, on, surface, fakeRepo({ branch: 'feature/login' }))
     await gauge.pass(0)
-    expect(await gauge.row1(86)).toBe('opus-4-1 ● high ⏱ 1h 12m ⏳ 60m $3.84 ⚡ 62 t/s ↓0 ±0 ↑0')
-    expect(await gauge.row1(87)).toBe('opus-4-1 ● high ⏱ 1h 12m ⏳ 60m $3.84 ⚡ 62 t/s fea… ↓0 ±0 ↑0')
+    expect(await gauge.row1(91)).toBe('opus-4-1 ● high ⏱ 1h 12m ⏳ 60m 90% $3.84 ⚡ 62 t/s ↓0 ±0 ↑0')
+    expect(await gauge.row1(92)).toBe('opus-4-1 ● high ⏱ 1h 12m ⏳ 60m 90% $3.84 ⚡ 62 t/s fea… ↓0 ±0 ↑0')
   })
 
   // ── the fetch: how ↓ learns what the remote has ───────────────────────────
@@ -370,7 +369,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const repo = fakeRepo({ behind: 2, modified: 1 })
     const gauge = await start($, on, 'terminal', repo)
     await gauge.pass(0)
-    expect(await gauge.row1()).toBe(`${HEAD} ${TOKENS}`)
+    expect(await gauge.row1()).toBe(`${HEAD}`)
     // Not at the start, not on a tick, not after a turn: git is never run.
     await gauge.pass(10 * MIN)
     await $.turn.complete({ answer: 'Hi', durationMs: 1, isAborted: false, turnId: 't2', reason: 'answer', usage: { model: 'm', input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } as never)
@@ -388,32 +387,25 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect((await gauge.slots())[0]).toEqual(['↓2', 'warning', false])
   })
 
-  test('each other item can go: the row closes up, three spaces between the rest, no hole', { options: { showTokens: false } }, async ($, on) => {
-    const gauge = await start($, on, 'terminal', fakeRepo({ behind: 1 }))
-    await gauge.pass(0)
-    expect(await gauge.row1()).toBe(`${HEAD} main ↓1 ±0 ↑0`)
-  })
-
   /** Each option, and what it takes off the full row (the space beside it goes too). */
   const ITEMS: [string, string][] = [
     ['showTime', '⏱ 1h 12m '],
     ['showCost', '$3.84 '],
     ['showSpeed', '⚡ 62 t/s '],
-    ['showTokens', 'in 100k out 124 '],
-    ['showCache', '⏳ 60m '],
+    ['showCache', '⏳ 60m 90% '],
   ]
   for (const [option, gone] of ITEMS) {
     test(`${option} off removes it and nothing else, with no double gap`, { options: { [option]: false } }, async ($, on) => {
       const gauge = await start($, on, 'terminal', fakeRepo({ behind: 1 }))
       await gauge.pass(0)
-      const full = `${HEAD} ${TOKENS} main ↓1 ±0 ↑0`
+      const full = `${HEAD} main ↓1 ±0 ↑0`
       expect(await gauge.row1()).toBe(full.replace(gone, ''))
       // A gap is three spaces (a chip carries one more of its own): six in a row would be a hole where an item was.
       expect(await gauge.raw1()).not.toMatch(/ {6}/)
     })
   }
 
-  test('every item off but the chips: just the model and effort', { options: { showTime: false, showCost: false, showSpeed: false, showTokens: false, showGit: false, showCache: false } }, async ($, on) => {
+  test('every item off but the chips: just the model and effort', { options: { showTime: false, showCost: false, showSpeed: false, showGit: false, showCache: false } }, async ($, on) => {
     const gauge = await start($, on, 'terminal', fakeRepo())
     await gauge.pass(0)
     expect(await gauge.row1()).toBe('claude-opus-4-1-20250805 ● high')

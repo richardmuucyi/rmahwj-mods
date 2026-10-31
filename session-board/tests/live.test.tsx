@@ -23,7 +23,7 @@ const BAND = {
 }
 
 /** A git repository in memory: what status, numstat and diff answer. */
-type Repo = { isRepo: boolean; status: string[]; numstat: string[]; runs: string[][]; logDirs?: string[] }
+type Repo = { isRepo: boolean; status: string[]; numstat: string[]; runs: string[][]; logDirs?: string[]; mtimes?: Record<string, number> }
 
 const openSawView: string[] = []
 
@@ -53,7 +53,7 @@ function bottom(on: On, files: Map<string, string>, repo: Repo) {
       ? repo.logDirs.map(name => ({ name, kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false }))
       : [...files.keys()]
       .filter(k => k.startsWith(`${posix(e.path)}/`))
-      .map(k => ({ name: k.slice(posix(e.path).length + 1), kind: 'file' as const, size: 1, mtimeMs: 0, isLink: false })),
+      .map(k => ({ name: k.slice(posix(e.path).length + 1), kind: 'file' as const, size: 1, mtimeMs: repo.mtimes?.[k] ?? 0, isLink: false })),
   }))
   on('ui.status', () => ({ value: undefined }))
   // Which tab the panel was on when it was asked to open: a press must open the panel first, before
@@ -225,8 +225,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     // The card others read carries the task counts.
     const card = JSON.parse(files.get('/home/me/.claude/session-board/me.json') ?? '{}') as { progress?: unknown; v?: number }
     expect(card.progress).toEqual({ done: 1, total: 3 })
-    // 4 since 0.29.0: the card carries its background work with ids and start times (`bg`).
-    expect(card.v).toBe(4)
+    // 5: the card lists the files Claude edited (`edits`), so two sessions can see they edited the same one.
+    expect(card.v).toBe(5)
 
     // Next turn: its own files list; ended subagents drop off.
     await $.turn.start({ text: 'More', turnId: 't2' })
@@ -468,14 +468,14 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await $.agent.spawn({ prompt: 'find', description: 'Scan the vault', subagentType: 'Explore', background: true } as never)
     await $.turn.complete({ answer: 'ok', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
     await clock.advance(5_000)
-    expect(await strip()).toBe('current ◌ Waiting on a background task ◈ 1 agent sessions ›')
+    expect(await strip()).toBe('current ◌ Waiting ◈ 1 agent sessions ›')
     // The status and the background count are chips on the labels' black (their colour is the text), and they touch.
     const band = await $.ui.mount({ plugin: 'session-board', surface, component: 'AbovePrompt', props: { ...BAND, isWorking: false } })
     const drawn = await band.find({ key: 'sb-strip' })
     expect(chipsOf(drawn)).toEqual([
-      ['#000000', ' current  ', '#8B949E'], ['#000000', ' ◌ Waiting on a background task ', 'magenta'], ['#000000', ' ◈ 1 agent ', 'magenta'],
+      ['#000000', ' current  ', '#8B949E'], ['#000000', ' ◌ Waiting ', 'magenta'], ['#000000', ' ◈ 1 agent ', 'magenta'],
     ])
-    expect(drawn?.text).toContain('task  ◈ 1 agent')
+    expect(drawn?.text).toContain('Waiting  ◈ 1 agent')
     await band.unmount()
     // It ends: the count goes, and so does the strip.
     await $.classic.SubagentStop({ agent_id: 'a1', agent_type: 'Explore', stop_hook_active: false } as never)
@@ -509,12 +509,12 @@ for (const surface of ['terminal', 'desktop'] as const) {
       ],
     })
     await clock.advance(5_000)
-    expect(await strip()).toBe('current ◌ Waiting on 2 background tasks ◈ 1 job · 1 agent sessions ›')
+    expect(await strip()).toBe('current ◌ Waiting ◈ 1 job · 1 agent sessions ›')
     // The agent ends: it leaves the count at once, and the shell left keeps the strip open (since 0.29.0: a lone job
     // opens it; before, it opened no strip).
     await $.classic.SubagentStop({ agent_id: 'a1', agent_type: 'Explore', stop_hook_active: false } as never)
     await clock.advance(5_000)
-    expect(await strip()).toBe('current ◌ Waiting on a background task ◈ 1 job sessions ›')
+    expect(await strip()).toBe('current ◌ Waiting ◈ 1 job sessions ›')
   })
 
   test(`the ◈ chip counts jobs, agents, monitors and wake-ups apart; initials when narrow (${surface})`, async ($, on) => {
@@ -658,7 +658,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await $.classic.Stop({ stop_hook_active: false, background_tasks: [{ id: 'b1', type: 'shell', status: 'running', description: 'Render on the GPU' }], session_crons: [] })
     await $.turn.complete({ answer: 'ok', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
     await clock.advance(5_000)
-    expect((await band($, BAND.bodyColumns, false)).strip).toBe('current ◌ Waiting on a background task ◈ 1 job (12m) sessions ›')
+    expect((await band($, BAND.bodyColumns, false)).strip).toBe('current ◌ Waiting ◈ 1 job (12m) sessions ›')
     // Its report: off at once, and the strip closes.
     await $.prompt.submit({ text: report('b1'), origin: { kind: 'task-notification' }, wait: false })
     await clock.advance(5_000)
@@ -756,7 +756,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await clock.advance(5_000)
     expect(card().tasks).toEqual(['monitor: Watch the render log'])
     // Kinds and starts survive too: the chip still counts a monitor, not a bare number.
-    expect((await band($, BAND.bodyColumns, false)).strip).toBe('current ◌ Waiting on a background task ◈ 1 monitor sessions ›')
+    expect((await band($, BAND.bodyColumns, false)).strip).toBe('current ◌ Waiting ◈ 1 monitor sessions ›')
   })
 
   test(`journal on: log day folders past 30 days are removed, nothing else (${surface})`, { options: { journal: true } }, async ($, on) => {
@@ -767,5 +767,55 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await $.session.start({ cwd: '/home/me/vault', surface, isInteractive: true })
     const removed = repo.runs.filter(r => r[0] === 'rm')
     expect(removed).toEqual([['rm', '-rf', '--', '/home/me/.claude/session-board/log/2026-08-01']])
+  })
+
+  const BOARD = '/home/me/.claude/session-board'
+  const DAY = 86_400_000
+
+  /** Files of the board folder with their ages, then the removes session.start runs. */
+  const cardPrune = async ($: Engine, on: On, ages: Record<string, number | undefined>) => {
+    const now = Date.parse('2026-10-31T09:00:00')
+    mock.clock(on, { now })
+    const files = new Map<string, string>()
+    const mtimes: Record<string, number> = {}
+    for (const [name, age] of Object.entries(ages)) {
+      const path = `${BOARD}/${name}`
+      files.set(path, '{}')
+      mtimes[path] = age === undefined ? 0 : now - age
+    }
+    const repo: Repo = { isRepo: false, status: [], numstat: [], runs: [], mtimes }
+    bottom(on, files, repo)
+    await $.session.start({ cwd: '/home/me/vault', surface, isInteractive: true })
+    return repo.runs.filter(r => r[0] === 'rm' || r.includes('del'))
+  }
+  test(`cards: a session untouched for 7 days loses its .json and .assume in one call, an orphan .assume too (${surface})`, async ($, on) => {
+    const removed = await cardPrune($, on, {
+      'old.json': 8 * DAY,
+      'old.assume': 9 * DAY,
+      'fresh.json': 60_000,
+      'fresh.assume': 60_000,
+      'orphan.assume': 8 * DAY,
+      'notes.txt': 30 * DAY,
+      'old.json.bak': 30 * DAY,
+    })
+    expect(removed).toEqual([['rm', '-f', '--', `${BOARD}/old.json`, `${BOARD}/old.assume`, `${BOARD}/orphan.assume`]])
+  })
+
+  test(`cards: a fresh file, an unknown age or this session's own id keeps the whole session (${surface})`, async ($, on) => {
+    const removed = await cardPrune($, on, {
+      'live.json': 60_000,
+      'live.assume': 20 * DAY,
+      'unknown.json': undefined,
+      'unknown.assume': 20 * DAY,
+      'me.json': 20 * DAY,
+      'me.assume': 20 * DAY,
+      'gone.json': 8 * DAY,
+    })
+    expect(removed).toEqual([['rm', '-f', '--', `${BOARD}/gone.json`]])
+  })
+
+  test(`cards: nothing to remove runs nothing (${surface})`, async ($, on) => {
+    const removed = await cardPrune($, on, { 'a.json': 6 * DAY, 'a.assume': 6 * DAY, 'b.json': undefined, 'notes.txt': 30 * DAY })
+    expect(removed).toEqual([])
   })
 }

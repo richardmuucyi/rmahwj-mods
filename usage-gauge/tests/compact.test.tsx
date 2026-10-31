@@ -36,12 +36,15 @@ type Rig = {
   rows: Row[] | undefined
   /** The `breakdown` argument of every session.usage call, in order (undefined: a call without one). */
   asked: (string | undefined)[]
+  /** Where auto-compaction runs, in tokens, as the breakdown reports it; null: auto-compaction is off; undefined: the breakdown carries neither field. */
+  compactAt?: number | null
 }
 
 const rig = (over: Partial<Rig> = {}): Rig => ({ context: HAD, after: 46_000, usageThrows: false, rows: ROWS, asked: [], ...over })
 
-function breakdownOf(rows: Row[]) {
+function breakdownOf(rows: Row[], compactAt: number | null | undefined) {
   return {
+    ...(compactAt === undefined ? {} : compactAt === null ? { isAutoCompactEnabled: false } : { isAutoCompactEnabled: true, autoCompactThreshold: compactAt }),
     categories: rows.map(x => ({ ...x, color: 'x', isDeferred: x.kind === 'deferred' })),
     totalTokens: rows.filter(x => x.kind === 'used').reduce((n, x) => n + x.tokens, 0),
     maxTokens: WINDOW,
@@ -56,7 +59,7 @@ function bottom(on: On, r: Rig) {
     r.asked.push(asked)
     if (r.usageThrows) throw new Error('usage is not readable')
     const context: Record<string, unknown> = { ...r.context }
-    if (asked !== undefined && r.rows !== undefined) context.breakdown = breakdownOf(r.rows)
+    if (asked !== undefined && r.rows !== undefined) context.breakdown = breakdownOf(r.rows, r.compactAt)
     return { value: { startedAt: START, context, rateLimits: [] } as never }
   })
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
@@ -89,6 +92,83 @@ const start = ($: Engine, surface: 'terminal' | 'desktop' = 'terminal') => $.ses
 /** 46,000 after the compaction + 20,000 overhead = 66,000 of 200,000 */
 const EST = 'context ▰▰▰▱▱▱▱▱▱▱ ~33% ~66k'
 const DASH = 'context ▱▱▱▱▱▱▱▱▱▱ –'
+
+// ── the bar measured against auto-compaction ─────────────────────────────────
+
+/** Auto-compaction runs at 167,000 of the 200,000 window. */
+const AT = 167_000
+
+/** A main turn (or a subagent's, with `agentId`) ends. */
+async function endTurn($: Engine, agentId?: string) {
+  await $.turn.complete({
+    answer: 'ok', durationMs: 1000, isAborted: false, turnId: 't1', reason: 'answer',
+    ...(agentId ? { agentId } : {}),
+    usage: { model: 'claude-opus-4-1-20250805', input_tokens: 1_000, output_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+  } as never)
+}
+
+test('auto-compaction on: after a turn the bar fills toward the point where it runs, not the whole window', async ($, on) => {
+  mock.clock(on, { now: START })
+  const r = rig({ context: { tokens: 90_000, window: WINDOW, percent: 45 }, compactAt: AT })
+  bottom(on, r)
+  await start($)
+  await endTurn($)
+  // 90,000 of 167,000 is 53.9%
+  expect(await meter($)).toBe('context ▰▰▰▰▰▱▱▱▱▱ 54% 90k')
+})
+
+test('auto-compaction off: the bar stays measured against the window', async ($, on) => {
+  mock.clock(on, { now: START })
+  const r = rig({ context: { tokens: 90_000, window: WINDOW, percent: 45 }, compactAt: null })
+  bottom(on, r)
+  await start($)
+  await endTurn($)
+  expect(await meter($)).toBe('context ▰▰▰▰▱▱▱▱▱▱ 45% 90k')
+})
+
+test('a breakdown that says nothing about auto-compaction leaves the bar on the window', async ($, on) => {
+  mock.clock(on, { now: START })
+  const r = rig({ context: { tokens: 90_000, window: WINDOW, percent: 45 } })
+  bottom(on, r)
+  await start($)
+  await endTurn($)
+  expect(await meter($)).toBe('context ▰▰▰▰▱▱▱▱▱▱ 45% 90k')
+})
+
+test('past the auto-compaction point the bar is full and stops at 100%', async ($, on) => {
+  mock.clock(on, { now: START })
+  const r = rig({ context: { tokens: 180_000, window: WINDOW, percent: 90 }, compactAt: AT })
+  bottom(on, r)
+  await start($)
+  await endTurn($)
+  expect(await meter($)).toBe('context ▰▰▰▰▰▰▰▰▰▰ 100% 180k')
+})
+
+test('the breakdown is read once per main turn, as a summary: never by the 15-second refresh, never for a subagent', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const r = rig({ context: { tokens: 90_000, window: WINDOW, percent: 45 }, compactAt: AT })
+  bottom(on, r)
+  await start($)
+  await clock.advance(45_000)
+  expect(r.asked.filter(a => a !== undefined)).toEqual([])
+  await endTurn($)
+  await endTurn($, 'a1')
+  await endTurn($)
+  await clock.advance(45_000)
+  expect(r.asked.filter(a => a !== undefined)).toEqual(['summary', 'summary'])
+})
+
+test("a compaction's estimate is measured against the auto-compaction point too", async ($, on) => {
+  mock.clock(on, { now: START })
+  const r = rig({ compactAt: AT })
+  bottom(on, r)
+  await start($)
+  await endTurn($)
+  r.context = NONE
+  await compact($)
+  // 46,000 after + 20,000 overhead = 66,000 of 167,000 is 39.5%
+  expect(await meter($)).toBe('context ▰▰▰▱▱▱▱▱▱▱ ~40% ~66k')
+})
 
 test('no figure from the engine and no compaction (a /clear): the old figure is not kept', async ($, on) => {
   const clock = mock.clock(on, { now: START })

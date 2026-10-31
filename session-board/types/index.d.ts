@@ -23,7 +23,7 @@ export type BgRow = { id: string; kind: TaskKind; what: string; since: number; i
 
 /** One session's card, as each session writes it to the shared folder. */
 export type BoardEntry = {
-  /** Card format; 2 adds `background` and `tasks`, 3 adds `progress`, 4 adds `bg`. */
+  /** Card format; 2 adds `background` and `tasks`, 3 adds `progress`, 4 adds `bg`, 5 adds `edits`. */
   v?: number
   id: string
   /** The project folder, full path. */
@@ -42,6 +42,9 @@ export type BoardEntry = {
   bg?: CardTask[]
   /** The session's task list: items done of all items (Claude's own task list). */
   progress?: { done: number; total: number }
+  /** The files Claude edited in this session (its own Write/Edit calls, subagents too), as folderKey spellings, newest
+   *  last, the 200 newest: two sessions that list one file both edited it. */
+  edits?: string[]
   /** Epoch ms of the last status change. */
   changedAt: number
   /** Epoch ms of the last heartbeat. */
@@ -165,6 +168,10 @@ declare module 'claude-code' {
         replied: { name: string; n: number }[]
         /** Other live sessions that are not alerts: counts only, for the strip's tail. */
         quiet?: { working: number; waiting: number; idle: number }
+        /** Files this session and another live one both edited, still uncommitted where git tracks them. `path` as the
+         *  files view shows it; `with` the other sessions' folder labels, one per session. `names` groups every session
+         *  across the files by label ("vault ×2"), which `with` alone cannot do: two sessions may share a label. */
+        overlap?: { files: { key: string; path: string; with: string[] }[]; names: { name: string; n: number }[] }
       }
       /** This session's own state, for the strip's pill. */
       self: { status: string; text: string } | null

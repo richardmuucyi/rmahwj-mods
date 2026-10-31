@@ -13,7 +13,6 @@ const gauge = atom({ plugin: 'usage-gauge', key: 'gauge' } as const, {
   startedAt: 0,
   now: 0,
   tokensIn: 0,
-  tokensOut: 0,
   cacheRead: 0,
 })
 
@@ -53,7 +52,7 @@ const GLYPH: Record<string, string> = { low: '○', medium: '◐', high: '●', 
 
 /**
  * A meter is drawn in Claude Code's own colours, by theme key, so it follows the person's theme: the fill its own usage
- * bars use, then the theme's warning from 70% and its error from 90%. The cost, speed and token numbers are plain text.
+ * bars use, then the theme's warning from 70% and its error from 90%. The cost, speed and cache rate are plain text.
  */
 const stage = (pct: number) => (pct >= 90 ? 'error' : pct >= 70 ? 'warning' : 'rate_limit_fill')
 
@@ -210,12 +209,43 @@ function overheadOf(b: SessionContextBreakdown | undefined): number | undefined 
 /**
  * A compaction leaves the engine with no context figure until the next response. This is the stand-in: the
  * compaction's own count (the summary and the kept messages) plus the overhead, or nothing when either is missing.
- * The count alone read 4.5 times low on 2026-10-13: 28,781 against a real 127,965.
+ * The count alone read 4.5 times low on 2026-10-13: 28,781 against a real 127,965. Its percent is of the window, for
+ * when the auto-compaction point is not known (contextPct).
  */
 function afterCompaction(tokensAfter: number | undefined, overhead: number | undefined, win: number): Gauge['context'] {
   if (tokensAfter === undefined || tokensAfter <= 0 || overhead === undefined || !(win > 0)) return undefined
   const tokens = tokensAfter + overhead
   return { pct: Math.min(100, Math.round((tokens / win) * 100)), tokens, window: win, estimated: true }
+}
+
+/**
+ * Where auto-compaction runs, as a breakdown says. A breakdown that says nothing either way (or none at all) keeps what
+ * the last one said.
+ */
+function compactAtOf(b: SessionContextBreakdown | undefined, was: number | undefined): number | undefined {
+  if (b?.isAutoCompactEnabled === true && (b.autoCompactThreshold ?? 0) > 0) return b.autoCompactThreshold
+  if (b?.isAutoCompactEnabled === false) return undefined
+  return was
+}
+
+/**
+ * The context bar's percent: of the point where auto-compaction runs when that is known, since the session is
+ * rewritten there and not at the window's end; else the figure's own percent, of the window. Not rounded: the meter
+ * rounds the number it prints, and the cells count whole tens of the exact share (39.5% is "40%" over 3 cells).
+ */
+function contextPct(c: NonNullable<Gauge['context']>, compactAt: number | undefined): number {
+  if (compactAt === undefined || c.tokens === undefined) return c.pct
+  return Math.min(100, (c.tokens / compactAt) * 100)
+}
+
+/**
+ * A /clear starts the session's figures over, and what the gauge counted for the conversation that is gone goes with
+ * it. The engine fires no session.start for a /clear, so the sign is `startedAt` moving: the 15-second refresh sees it,
+ * and so does each request, which must not add its tokens to the old conversation's.
+ */
+function startedOver(g: Gauge, startedAt: number): Gauge {
+  if (g.startedAt <= 0 || startedAt <= 0 || startedAt === g.startedAt) return g
+  return { ...g, startedAt, tokensIn: 0, cacheRead: 0, tps: undefined, ran: false, cacheAt: undefined, cacheModel: undefined }
 }
 
 /** Reads the session's usage figures into the gauge. */
@@ -231,30 +261,31 @@ async function refresh($: EngineInterface): Promise<void> {
     const r = u.rateLimits.find(x => x.kind === kind)
     return r ? { pct: r.percentUsed, resetsAt: r.resetsAt } : undefined
   }
-  await update($, gauge, g => ({
-    ...g,
-    // A /clear starts the session's figures over: what was cached belongs to the conversation that is gone.
-    ...(g.startedAt > 0 && u.startedAt > 0 && u.startedAt !== g.startedAt ? { cacheAt: undefined, cacheModel: undefined } : {}),
-    ttlChoice,
-    startedAt: u.startedAt,
-    now: t,
-    // After it, the chips are what was sent: the selection is compared with them at each request, never drawn over them.
-    model: g.ran ? g.model : model || g.model,
-    effort: g.ran ? g.effort : startEffort || g.effort,
-    // The pick as it stands, for the chips to show between requests.
-    pick: { model: model || undefined, effort: startEffort },
-    // No figure from the engine (a fresh session, a /clear, or a compaction before its next response): the old real
-    // figure is out of date and goes; a compaction's estimate stays until the real one arrives.
-    context:
-      u.context.percent !== undefined
-        ? { pct: u.context.percent, tokens: u.context.tokens, window: u.context.window }
-        : g.context?.estimated
-          ? g.context
-          : undefined,
-    fiveHour: limit('five_hour') ?? g.fiveHour,
-    weekly: limit('seven_day') ?? g.weekly,
-    cost: u.cost?.usd ?? g.cost,
-  }))
+  await update($, gauge, was => {
+    const g = startedOver(was, u.startedAt)
+    return {
+      ...g,
+      ttlChoice,
+      startedAt: u.startedAt,
+      now: t,
+      // After it, the chips are what was sent: the selection is compared with them at each request, never drawn over them.
+      model: g.ran ? g.model : model || g.model,
+      effort: g.ran ? g.effort : startEffort || g.effort,
+      // The pick as it stands, for the chips to show between requests.
+      pick: { model: model || undefined, effort: startEffort },
+      // No figure from the engine (a fresh session, a /clear, or a compaction before its next response): the old real
+      // figure is out of date and goes; a compaction's estimate stays until the real one arrives.
+      context:
+        u.context.percent !== undefined
+          ? { pct: u.context.percent, tokens: u.context.tokens, window: u.context.window }
+          : g.context?.estimated
+            ? g.context
+            : undefined,
+      fiveHour: limit('five_hour') ?? g.fiveHour,
+      weekly: limit('seven_day') ?? g.weekly,
+      cost: u.cost?.usd ?? g.cost,
+    }
+  })
 }
 
 /**
@@ -321,7 +352,6 @@ function addUsage(g: Gauge, u: Usage): Gauge {
   return {
     ...g,
     tokensIn: g.tokensIn + u.input_tokens + u.cache_creation_input_tokens + u.cache_read_input_tokens,
-    tokensOut: g.tokensOut + u.output_tokens,
     cacheRead: g.cacheRead + u.cache_read_input_tokens,
   }
 }
@@ -340,47 +370,38 @@ function withCache(g: Gauge, u: Usage, sentAt: number | undefined, model: string
 type Kit = { Box: (p: any) => RenderElement; Text: (p: any) => RenderElement }
 
 /**
- * "⏳ 52m": how long the main conversation's prompt cache stays warm, counted from the request that last wrote or read
- * it. The minutes are rounded up, so "1m" lasts to the last second. The value is plain text while there is time, then
- * drawn in the same theme keys as a meter that fills: warning once 70% of the lifetime is spent, error from 90%, so the
- * colour is relative to the lifetime (an hour on a plan, five minutes otherwise) and the number carries no note of it.
- * "cold" in error once it has run out; a dash when nothing is cached (before the first response, after a /clear, a
- * compaction or a model switch).
+ * "⏳ 52m 96%": how long the main conversation's prompt cache stays warm, counted from the request that last wrote or
+ * read it, then the share of the main chat's input that the cache served over the session (rounded down, so 100% means
+ * every input token). The minutes are rounded up, so "1m" lasts to the last second. They are plain text while there is
+ * time, then drawn in the same theme keys as a meter that fills: warning once 70% of the lifetime is spent, error from
+ * 90%, so the colour is relative to the lifetime (an hour on a plan, five minutes otherwise) and the number carries no
+ * note of it. "cold" in error once it has run out; a dash when nothing is cached (before the first response, after a
+ * /clear, a compaction or a model switch).
  */
 function cacheChip(ui: Kit, g: Gauge, now: number): RenderElement {
   const { Text } = ui
-  const glyph = <Text dimColor>{'⏳ '}</Text>
-  if (g.cacheAt === undefined) {
-    return (
-      <Text key="ug-cache">
-        {glyph}
-        <Text dimColor>–</Text>
-      </Text>
-    )
-  }
-  const ttl = cacheTtl(g)
-  const total = TTL_MS[ttl]
-  const left = g.cacheAt + total - Math.max(now, g.cacheAt)
-  if (left <= 0) {
-    return (
-      <Text key="ug-cache">
-        {glyph}
-        <Text color={stage(100)}>cold</Text>
-      </Text>
-    )
-  }
-  const color = stage(((total - left) / total) * 100)
-  const mins = Math.ceil(left / MIN_MS)
+  const rate = g.tokensIn > 0 ? <Text>{` ${Math.floor((g.cacheRead / g.tokensIn) * 100)}%`}</Text> : undefined
   return (
     <Text key="ug-cache">
-      {glyph}
-      <Text {...(color === 'rate_limit_fill' ? {} : { color })}>{`${mins}m`}</Text>
+      <Text dimColor>{'⏳ '}</Text>
+      {cacheLeft(ui, g, now)}
+      {rate}
     </Text>
   )
 }
 
+function cacheLeft(ui: Kit, g: Gauge, now: number): RenderElement {
+  const { Text } = ui
+  if (g.cacheAt === undefined) return <Text dimColor>–</Text>
+  const total = TTL_MS[cacheTtl(g)]
+  const left = g.cacheAt + total - Math.max(now, g.cacheAt)
+  if (left <= 0) return <Text color={stage(100)}>cold</Text>
+  const color = stage(((total - left) / total) * 100)
+  return <Text {...(color === 'rate_limit_fill' ? {} : { color })}>{`${Math.ceil(left / MIN_MS)}m`}</Text>
+}
+
 /**
- * "⏱ 1h 12m ⏳ 52m": the session's clock and the cache's, one chip, one space between. Either part can be turned off in
+ * "⏱ 1h 12m ⏳ 52m 96%": the session's clock and the cache's, one chip, one space between. Either part can be turned off in
  * /config and the other stands alone. Nothing at all when both are off, or when only the time is on and the session has
  * not started.
  */
@@ -467,17 +488,9 @@ export const register: Register = (on, options) => {
 
   // The main loop's model and effort, and how fast its reply came out.
   on('turn.step', async function* ($, e, next) {
-    if (e.agentId !== undefined) {
-      // A subagent's request: its tokens are the session's too.
-      const r = yield* next(e)
-      try {
-        const u = r?.usage
-        if (u) void update($, gauge, g => addUsage(g, u)).catch(() => undefined)
-      } catch {
-        // no usage on this step
-      }
-      return r
-    }
+    const startedAt = await $.session.usage().then(u => u.startedAt).catch(() => undefined)
+    if (startedAt !== undefined) await update($, gauge, g => startedOver(g, startedAt)).catch(() => undefined)
+    if (e.agentId !== undefined) return yield* next(e)
     // What the person had selected as this request went out, to hold the request to.
     let selected: Gauge['selected']
     try {
@@ -534,15 +547,19 @@ export const register: Register = (on, options) => {
     const r = await next(e)
     if (e.agentId !== undefined || e.trigger === 'precompute' || r.skip !== undefined) return r
     let context: Gauge['context']
+    let breakdown: SessionContextBreakdown | undefined
     try {
       // 'summary' is a local estimate; 'full' would send one token-count request per tool and memory file.
       const u = await $.session.usage({ breakdown: 'summary' })
-      context = afterCompaction(r.tokensAfter, overheadOf(u.context.breakdown), u.context.window)
+      breakdown = u.context.breakdown
+      context = afterCompaction(r.tokensAfter, overheadOf(breakdown), u.context.window)
     } catch {
       context = undefined
     }
     // The conversation is rewritten, so the cache of the old one is no use: a dash until the next response caches the new.
-    await update($, gauge, g => ({ ...g, context, cacheAt: undefined, cacheModel: undefined })).catch(() => undefined)
+    await update($, gauge, g => ({ ...g, context, compactAt: compactAtOf(breakdown, g.compactAt), cacheAt: undefined, cacheModel: undefined })).catch(
+      () => undefined,
+    )
     return r
   }).catch(($, e, next) => next(e))
 
@@ -551,6 +568,13 @@ export const register: Register = (on, options) => {
     const r = await next(e)
     if (e.agentId === undefined) {
       await refresh($).catch(() => undefined)
+      // Where auto-compaction runs moves only with the model and settings, so once a main turn is enough. A summary
+      // breakdown sends no request but is worked out on each call, so it stays out of the 15-second refresh.
+      const breakdown = await $.session
+        .usage({ breakdown: 'summary' })
+        .then(u => u.context.breakdown)
+        .catch(() => undefined)
+      await update($, gauge, g => ({ ...g, compactAt: compactAtOf(breakdown, g.compactAt) })).catch(() => undefined)
       // A plan's windows arrive with its first reply, so a finished turn without them means there is no plan. A turn
       // stopped before any reply proves nothing.
       if (!e.isAborted) await update($, gauge, g => ({ ...g, noPlan: g.fiveHour === undefined && g.weekly === undefined })).catch(() => undefined)
@@ -574,11 +598,12 @@ export const register: Register = (on, options) => {
     // The surface's own measure. PromptHint's props carry no width (that is the AbovePrompt band's `bodyColumns`), so
     // reading one here always fell back to wide. A surface that has not measured (no width, or 0) is drawn wide, whatever
     // the threshold.
-    // With the git slots on the row, the token counts give way to them in a pane too narrow for both (see layoutOf).
+    // With the git slots on the row, the branch takes the room the pane leaves, and in the narrowest panes the speed
+    // gives way to the slots (see layoutOf).
     // `show.git` is checked here as well as in refreshGit: the gauge's state outlives the reload that a change in /config
     // causes, so a repository read by the module before it can still be in it.
     const slots = show.git && g.git !== undefined
-    const { narrow: isNarrow, tokens: withTokens, untracked: withUntracked, branch: branchRoom } = layoutOf(e.viewport?.columns, slots, show.tokens)
+    const { narrow: isNarrow, speed: withSpeed, untracked: withUntracked, branch: branchRoom } = layoutOf(e.viewport?.columns, slots)
     const t = g.now || g.startedAt
     // The person picked again since the last request (/model, /effort): the new pick, in the plain colours, until a
     // request is held to it.
@@ -617,19 +642,7 @@ export const register: Register = (on, options) => {
     const clock = clockChip(ui, g, t, show.time, show.cache)
     if (clock) items.push(clock)
     if (show.cost && g.ran && g.cost !== undefined) items.push(<Text key="ug-cost" bold>{`$${g.cost.toFixed(2)}`}</Text>)
-    if (show.speed && g.ran) {
-      items.push(g.tps !== undefined ? <Text key="ug-tps">{`⚡ ${g.tps} t/s`}</Text> : <Text key="ug-tps" dimColor>⚡ – t/s</Text>)
-    }
-    if (withTokens && g.ran) {
-      items.push(
-        <Text key="ug-tokens">
-          <Text dimColor>in </Text>
-          {g.tokensIn > 0 ? <Text>{num(g.tokensIn)}</Text> : <Text dimColor>–</Text>}
-          <Text dimColor>  out </Text>
-          {g.tokensIn > 0 ? <Text>{num(g.tokensOut)}</Text> : <Text dimColor>–</Text>}
-        </Text>,
-      )
-    }
+    if (show.speed && withSpeed && g.ran && g.tps !== undefined) items.push(<Text key="ug-tps">{`⚡ ${g.tps} t/s`}</Text>)
     if (slots && g.git) items.push(gitChip(ui, g.git, withUntracked, branchRoom))
     const row1 = (
       <Box key="ug-row1" flexWrap="wrap">
@@ -637,7 +650,7 @@ export const register: Register = (on, options) => {
       </Box>
     )
     // The context meter also shows how many tokens the context holds (it was the session board's "ctx 305K" chip).
-    const ctx: Limit | undefined = g.context ? { pct: g.context.pct, approx: g.context.estimated, tokens: g.context.tokens } : undefined
+    const ctx: Limit | undefined = g.context ? { pct: contextPct(g.context, g.compactAt), approx: g.context.estimated, tokens: g.context.tokens } : undefined
     // No plan (an API key): the limit meters would stay empty for good, so row 2 is the context meter alone.
     const limits = !(g.noPlan && g.fiveHour === undefined && g.weekly === undefined)
     const row2 = (

@@ -5,7 +5,7 @@ import type { On } from 'claude-code'
 import { fakeRepo, stubGit } from './repo'
 import type { Repo } from './repo'
 
-// Which layout the two rows use: the wide one, or the narrow one below 115 columns (short labels, no token counts, no
+// Which layout the two rows use: the wide one, or the narrow one below 115 columns (short labels, no untracked slot, no
 // weekly reset). The width is the surface's own measure, `e.viewport.columns` on the `ui.render` envelope: on the
 // terminal the conversation's columns, re-drawn when the width changes. The PromptHint component carries no width in
 // its props (its props are `isDraft`, `isWorking`, `hint` and `tail`), so a `bodyColumns` there is something the
@@ -15,11 +15,12 @@ import type { Repo } from './repo'
 // cache chip wraps onto a third line. The budget test below holds the threshold to the rows, so a new item that
 // widens them fails there, and says to raise the threshold.
 //
-// The cache timer sits in the clock chip with the session time ("⏱ 1h 12m ⏳ 60m"), and the git chip ("main ↓2 ±4 ?2 ↑1")
-// follows the tokens. The git chip widens row 1 by up to 36 cells, so in a repository the layout gives way: the branch
-// name takes the room that is left (up to 16 cells, none under 4), the untracked slot is in every wide pane, and the
-// token counts wait for 131 columns. Without the chip on the row (git off in /config, or no repository) every threshold
-// is the one above. The budget tests draw every item at its longest, the cache "cold" included, which is the longest chip.
+// The cache timer and the cache rate sit in the clock chip with the session time ("⏱ 1h 12m ⏳ 60m 90%"), and the git
+// chip ("main ↓2 ±4 ?2 ↑1") ends the row. The git chip widens row 1 by up to 36 cells, so in a repository the layout
+// gives way: the branch name takes the room that is left (up to 16 cells, none under 4), the untracked slot is in every
+// wide pane, and the speed waits for 85 columns. Without the chip on the row (git off in /config, or no repository)
+// every threshold is the one above. The budget tests draw every item at its longest, the cache "cold" and a rate of
+// 100% included, which is the longest clock chip.
 
 const HINT = { isDraft: false, isWorking: false, hint: '? for shortcuts' }
 const START = Date.parse('2026-10-13T10:00:00')
@@ -56,9 +57,9 @@ const TYPICAL: Scenario = {
 }
 
 /**
- * Every item at its longest: the longest model id, the longest effort name, hours and minutes of session time, a
- * two-digit cost, a three-digit speed, millions of tokens, both limits at 100% (which also puts the cache on its
- * five-minute lifetime, so its chip carries the note), a reset with minutes, and the weekly date at its longest.
+ * Every item at its longest: the longest model id, the longest effort name, hours and minutes of session time, every
+ * input token read from the cache (a cache rate of 100%), a two-digit cost, a three-digit speed, both limits at 100%
+ * (which also puts the cache on its five-minute lifetime), a reset with minutes, and the weekly date at its longest.
  */
 const HEAVY: Scenario = {
   model: 'claude-haiku-4-5-20251001',
@@ -71,7 +72,7 @@ const HEAVY: Scenario = {
   ],
   cost: 12.34,
   streamMs: 2_000,
-  usage: { input_tokens: 1_000, output_tokens: 240, cache_read_input_tokens: 1_000_000, cache_creation_input_tokens: 199_000 },
+  usage: { input_tokens: 0, output_tokens: 240, cache_read_input_tokens: 1_200_000, cache_creation_input_tokens: 0 },
 }
 
 /** Glyphs two cells wide. ⏱ is counted as two as well: terminals differ on it, and the safe side is the wider. */
@@ -135,19 +136,19 @@ async function drawn($: Engine, on: On, surface: Surface, s: Scenario = TYPICAL,
 }
 
 const WIDE = {
-  r1: 'claude-opus-4-1-20250805 ● high ⏱ 1h 12m ⏳ 60m $3.84 ⚡ 62 t/s in 100k out 124',
+  r1: 'claude-opus-4-1-20250805 ● high ⏱ 1h 12m ⏳ 60m 90% $3.84 ⚡ 62 t/s',
   r2: 'context ▰▰▰▰▱▱▱▱▱▱ 42% 84k 5 hour ▰▰▰▰▰▰▰▱▱▱ 71% ↻ 2:40pm weekly ▰▱▱▱▱▱▱▱▱▱ 18% ↻ Mon 19 Oct 9am',
 }
 const NARROW = {
-  r1: 'opus-4-1 ● high ⏱ 1h 12m ⏳ 60m $3.84 ⚡ 62 t/s',
+  r1: 'opus-4-1 ● high ⏱ 1h 12m ⏳ 60m 90% $3.84 ⚡ 62 t/s',
   r2: 'ctx ▰▰▰▰▱▱▱▱▱▱ 42% 84k 5h ▰▰▰▰▰▰▰▱▱▱ 71% ↻ 2:40pm wk ▰▱▱▱▱▱▱▱▱▱ 18%',
 }
 const HEAVY_WIDE = {
-  r1: 'claude-haiku-4-5-20251001 ◉ xhigh ⏱ 12h 40m ⏳ 5m $12.34 ⚡ 120 t/s in 1.2M out 240',
+  r1: 'claude-haiku-4-5-20251001 ◉ xhigh ⏱ 12h 40m ⏳ 5m 100% $12.34 ⚡ 120 t/s',
   r2: 'context ▰▰▰▰▰▰▰▰▰▰ 100% 1.0M 5 hour ▰▰▰▰▰▰▰▰▰▰ 100% ↻ 12:40am weekly ▰▰▰▰▰▰▰▰▰▰ 100% ↻ Wed 21 Oct 12:30pm',
 }
 const HEAVY_NARROW = {
-  r1: 'haiku-4-5 ◉ xhigh ⏱ 12h 40m ⏳ 5m $12.34 ⚡ 120 t/s',
+  r1: 'haiku-4-5 ◉ xhigh ⏱ 12h 40m ⏳ 5m 100% $12.34 ⚡ 120 t/s',
   r2: 'ctx ▰▰▰▰▰▰▰▰▰▰ 100% 1.0M 5h ▰▰▰▰▰▰▰▰▰▰ 100% ↻ 12:40am wk ▰▰▰▰▰▰▰▰▰▰ 100%',
 }
 
@@ -166,6 +167,12 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const { draw } = await drawn($, on, surface)
     expect(await draw({})).toEqual(WIDE)
     expect(await draw({ viewport: { columns: 0, rows: 0 } })).toEqual(WIDE)
+  })
+
+  test(`a reply too quick to time leaves no speed to show: the speed chip takes no room, wide or narrow (${surface})`, async ($, on) => {
+    const { draw } = await drawn($, on, surface, { ...TYPICAL, streamMs: 0 })
+    expect((await draw({ viewport: { columns: 200, rows: 30 } })).r1).toBe('claude-opus-4-1-20250805 ● high ⏱ 1h 12m ⏳ 60m 90% $3.84')
+    expect((await draw({ viewport: { columns: 100, rows: 30 } })).r1).toBe('opus-4-1 ● high ⏱ 1h 12m ⏳ 60m 90% $3.84')
   })
 
   test(`a bodyColumns in the props is not a width: the engine sends none to this component (${surface})`, async ($, on) => {
@@ -204,22 +211,23 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
   // ── the git chip: branch ↓ ± ? ↑ on row 1, and what gives way for it ────────
 
-  const BASE = 'claude-opus-4-1-20250805 ● high ⏱ 1h 12m ⏳ 60m $3.84 ⚡ 62 t/s'
-  const TOKENS = 'in 100k out 124'
+  const BASE = 'claude-opus-4-1-20250805 ● high ⏱ 1h 12m ⏳ 60m 90% $3.84 ⚡ 62 t/s'
+  const SHORT = 'opus-4-1 ● high ⏱ 1h 12m ⏳ 60m 90% $3.84'
+  const SPEED = '⚡ 62 t/s'
   const TYPICAL_REPO = { behind: 2, ahead: 1, modified: 3, staged: 1, untracked: 2 }
 
-  test(`in a repository the pane gives way in order: the token counts wait for 131 columns, the untracked slot is in every wide pane (${surface})`, async ($, on) => {
+  test(`in a repository the pane gives way in order: the speed waits for 85 columns, the untracked slot is in every wide pane (${surface})`, async ($, on) => {
     const { draw } = await drawn($, on, surface, TYPICAL, fakeRepo(TYPICAL_REPO))
     for (const [columns, r1] of [
-      // Narrow: the short model name, no tokens, no untracked slot. Row 2 is the narrow one.
-      [100, 'opus-4-1 ● high ⏱ 1h 12m ⏳ 60m $3.84 ⚡ 62 t/s main ↓2 ±4 ↑1'],
-      [114, 'opus-4-1 ● high ⏱ 1h 12m ⏳ 60m $3.84 ⚡ 62 t/s main ↓2 ±4 ↑1'],
-      // Wide, but too narrow for the tokens: the git chip comes first, and row 2 keeps its weekly reset.
+      // The narrowest panes: the speed gives way to the git chip, and the branch has the room it leaves.
+      [80, `${SHORT} main ↓2 ±4 ↑1`],
+      [84, `${SHORT} main ↓2 ±4 ↑1`],
+      // Narrow: the short model name, no untracked slot. Row 2 is the narrow one.
+      [100, `${SHORT} ${SPEED} main ↓2 ±4 ↑1`],
+      [114, `${SHORT} ${SPEED} main ↓2 ±4 ↑1`],
+      // Wide: the untracked slot, and row 2 keeps its weekly reset.
       [115, `${BASE} main ↓2 ±4 ?2 ↑1`],
-      [130, `${BASE} main ↓2 ±4 ?2 ↑1`],
-      // Room for everything.
-      [131, `${BASE} ${TOKENS} main ↓2 ±4 ?2 ↑1`],
-      [200, `${BASE} ${TOKENS} main ↓2 ±4 ?2 ↑1`],
+      [200, `${BASE} main ↓2 ±4 ?2 ↑1`],
     ] as const) {
       const got = await draw({ viewport: { columns, rows: 30 } })
       expect(got.r1, `${columns} columns`).toBe(r1)
@@ -229,18 +237,17 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
   test(`the branch name takes the room that is left: cut with … to fit, none under 4 cells (${surface})`, async ($, on) => {
     const { draw } = await drawn($, on, surface, TYPICAL, fakeRepo({ ...TYPICAL_REPO, branch: 'feature/very-long-branch-name' }))
-    const narrow = 'opus-4-1 ● high ⏱ 1h 12m ⏳ 60m $3.84 ⚡ 62 t/s'
     for (const [columns, r1] of [
-      [80, `${narrow} ↓2 ±4 ↑1`],
-      [86, `${narrow} ↓2 ±4 ↑1`], // 3 cells of room: no branch
-      [87, `${narrow} fea… ↓2 ±4 ↑1`], // 4 cells
-      [90, `${narrow} featur… ↓2 ±4 ↑1`],
-      [100, `${narrow} feature/very-lo… ↓2 ±4 ↑1`], // 16 cells, the most
-      [115, `${BASE} feature/ve… ↓2 ±4 ?2 ↑1`],
-      [130, `${BASE} feature/very-lo… ↓2 ±4 ?2 ↑1`],
-      // The tokens come in at 131 and the branch gives some room back to them; it grows again as the pane does.
-      [131, `${BASE} ${TOKENS} feature… ↓2 ±4 ?2 ↑1`],
-      [139, `${BASE} ${TOKENS} feature/very-lo… ↓2 ±4 ?2 ↑1`],
+      [80, `${SHORT} feat… ↓2 ±4 ↑1`], // no speed: 5 cells
+      [84, `${SHORT} feature/… ↓2 ±4 ↑1`],
+      // The speed comes in at 85 and takes the branch's room; it grows again as the pane does.
+      [85, `${SHORT} ${SPEED} ↓2 ±4 ↑1`],
+      [91, `${SHORT} ${SPEED} ↓2 ±4 ↑1`], // 3 cells of room: no branch
+      [92, `${SHORT} ${SPEED} fea… ↓2 ±4 ↑1`], // 4 cells
+      [95, `${SHORT} ${SPEED} featur… ↓2 ±4 ↑1`],
+      [104, `${SHORT} ${SPEED} feature/very-lo… ↓2 ±4 ↑1`], // 16 cells, the most
+      [115, `${BASE} featu… ↓2 ±4 ?2 ↑1`],
+      [125, `${BASE} feature/very-lo… ↓2 ±4 ?2 ↑1`],
     ] as const) {
       expect((await draw({ viewport: { columns, rows: 30 } })).r1, `${columns} columns`).toBe(r1)
     }
@@ -248,54 +255,50 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
   test(`a detached HEAD shows the commit's short hash where the branch goes (${surface})`, async ($, on) => {
     const { draw } = await drawn($, on, surface, TYPICAL, fakeRepo({ detached: true }))
-    expect((await draw({ viewport: { columns: 200, rows: 30 } })).r1).toBe(`${BASE} ${TOKENS} aaaaaaa ↓0 ±0 ↑0`)
+    expect((await draw({ viewport: { columns: 200, rows: 30 } })).r1).toBe(`${BASE} aaaaaaa ↓0 ±0 ↑0`)
   })
 
-  test(`a surface that has not measured is drawn in full, git chip and tokens both (${surface})`, async ($, on) => {
+  test(`a surface that has not measured is drawn in full, the speed and a branch of 16 both (${surface})`, async ($, on) => {
     const { draw } = await drawn($, on, surface, TYPICAL, fakeRepo({ ...TYPICAL_REPO, branch: 'feature/very-long-branch-name' }))
-    const full = { r1: `${BASE} ${TOKENS} feature/very-lo… ↓2 ±4 ?2 ↑1`, r2: WIDE.r2 }
+    const full = { r1: `${BASE} feature/very-lo… ↓2 ±4 ?2 ↑1`, r2: WIDE.r2 }
     expect(await draw({})).toEqual(full)
     expect(await draw({ viewport: { columns: 0, rows: 0 } })).toEqual(full)
   })
 
   test(`with the git chip off, every threshold is the one the gauge always had (${surface})`, { options: { showGit: false } }, async ($, on) => {
     const { draw } = await drawn($, on, surface, TYPICAL, fakeRepo(TYPICAL_REPO))
-    for (const [columns, want] of [[114, NARROW], [115, WIDE], [200, WIDE]] as const) {
+    for (const [columns, want] of [[80, NARROW], [114, NARROW], [115, WIDE], [200, WIDE]] as const) {
       expect(await draw({ viewport: { columns, rows: 30 } }), `${columns} columns`).toEqual(want)
     }
   })
 
-  test(`with the tokens off nothing gives way for the git chip, and the branch has the room (${surface})`, { options: { showTokens: false } }, async ($, on) => {
-    const { draw } = await drawn($, on, surface, TYPICAL, fakeRepo({ ...TYPICAL_REPO, branch: 'feature/very-long-branch-name' }))
-    expect((await draw({ viewport: { columns: 115, rows: 30 } })).r1).toBe(`${BASE} feature/ve… ↓2 ±4 ?2 ↑1`)
-    expect((await draw({ viewport: { columns: 300, rows: 30 } })).r1).toBe(`${BASE} feature/very-lo… ↓2 ±4 ?2 ↑1`)
-  })
-
   // Every item at its longest: a hundred of everything in the repository, a branch name too long to fit, and the cache
-  // gone cold, which is the longest the clock chip gets ("cold" is 4 characters, a number of minutes at most 3).
+  // gone cold, which with a rate of 100% is the longest the clock chip gets ("cold" is 4 characters, a number of minutes
+  // at most 3).
   const HEAVY_REPO = { behind: 150, ahead: 150, modified: 150, untracked: 150, branch: 'feature/very-long-branch-name' }
   const COLD = 6 * 60_000
 
   test(`the widest rows with the git chip, every item at its longest (${surface})`, async ($, on) => {
     const { draw } = await drawn($, on, surface, HEAVY, fakeRepo(HEAVY_REPO))
-    const head = 'haiku-4-5 ◉ xhigh ⏱ 12h 40m ⏳ 5m $12.34 ⚡ 120 t/s'
-    const wide = 'claude-haiku-4-5-20251001 ◉ xhigh ⏱ 12h 40m ⏳ 5m $12.34 ⚡ 120 t/s'
+    const head = 'haiku-4-5 ◉ xhigh ⏱ 12h 40m ⏳ 5m 100% $12.34'
+    const wide = 'claude-haiku-4-5-20251001 ◉ xhigh ⏱ 12h 40m ⏳ 5m 100% $12.34 ⚡ 120 t/s'
     expect(await draw({ viewport: { columns: 140, rows: 30 } })).toEqual({
-      r1: `${wide} in 1.2M out 240 feature/very-lo… ↓99+ ±99+ ?99+ ↑99+`,
+      r1: `${wide} feature/very-lo… ↓99+ ±99+ ?99+ ↑99+`,
       r2: HEAVY_WIDE.r2,
     })
-    expect((await draw({ viewport: { columns: 120, rows: 30 } })).r1).toBe(`${wide} feature/very-lo… ↓99+ ±99+ ?99+ ↑99+`)
-    expect((await draw({ viewport: { columns: 100, rows: 30 } })).r1).toBe(`${head} feature/very-lo… ↓99+ ±99+ ↑99+`)
-    expect((await draw({ viewport: { columns: 80, rows: 30 } })).r1).toBe(`${head} ↓99+ ±99+ ↑99+`)
+    expect((await draw({ viewport: { columns: 120, rows: 30 } })).r1).toBe(`${wide} feature/ve… ↓99+ ±99+ ?99+ ↑99+`)
+    expect((await draw({ viewport: { columns: 100, rows: 30 } })).r1).toBe(`${head} ⚡ 120 t/s feature/ver… ↓99+ ±99+ ↑99+`)
+    expect((await draw({ viewport: { columns: 85, rows: 30 } })).r1).toBe(`${head} ⚡ 120 t/s ↓99+ ±99+ ↑99+`)
+    expect((await draw({ viewport: { columns: 80, rows: 30 } })).r1).toBe(`${head} feat… ↓99+ ±99+ ↑99+`)
   })
 
   const OPTION_SETS: [string, Record<string, boolean>][] = [
     ['everything on', {}],
-    ['tokens off', { showTokens: false }],
+    ['speed off', { showSpeed: false }],
     ['git off', { showGit: false }],
     ['cache off', { showCache: false }],
     ['time off', { showTime: false }],
-    ['only the chips and the git chip', { showTime: false, showCost: false, showSpeed: false, showTokens: false, showCache: false }],
+    ['only the chips and the git chip', { showTime: false, showCost: false, showSpeed: false, showCache: false }],
   ]
   for (const [name, options] of OPTION_SETS) {
     test(`at every width from 80 columns up each row fits on one line, everything at its longest: ${name} (${surface})`, { options }, async ($, on) => {
@@ -315,14 +318,15 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await clock.advance(COLD)
     // [columns, cells row 1 needs]
     for (const [columns, cells] of [
-      [300, 137], // tokens, untracked slot, a branch of 16: the widest row there is
-      [131, 129], // the tokens just fit, with a branch of 8
-      [130, 118], // no tokens: the branch grows back to 16
-      [115, 113], // the narrowest wide pane: a branch of 11
-      [114, 97], // narrow, a branch of 16
-      [87, 85], // narrow, a branch of 4
-      [86, 80], // 3 cells of room: no branch
-      [80, 80], // the narrowest pane the gauge draws for: the row is as wide as the pane
+      [300, 123], // untracked slot, a branch of 16: the widest row there is
+      [125, 123], // the branch reaches 16
+      [115, 113], // the narrowest wide pane: a branch of 6
+      [114, 102], // narrow, a branch of 16
+      [92, 90], // narrow, a branch of 4
+      [91, 85], // 3 cells of room: no branch
+      [85, 85], // the speed just fits: the row is as wide as the pane
+      [84, 82], // no speed, a branch of 9
+      [80, 78], // the narrowest pane the gauge draws for: no speed, a branch of 5
     ] as const) {
       expect((await measure(columns)).w1, `${columns} columns`).toBe(cells)
     }
@@ -331,9 +335,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect((await measure(114)).w2).toBe(74)
   })
 
-  test(`the cache gone cold is the longest clock chip: "cold" is 4 characters, a number of minutes at most 3 (${surface})`, async ($, on) => {
+  test(`the cache gone cold at a rate of 100% is the longest clock chip: "cold" is 4 characters, a number of minutes at most 3 (${surface})`, async ($, on) => {
     const { draw, clock } = await drawn($, on, surface, HEAVY)
     await clock.advance(COLD)
-    expect((await draw({ viewport: { columns: 200, rows: 30 } })).r1).toContain('⏱ 12h 46m ⏳ cold')
+    expect((await draw({ viewport: { columns: 200, rows: 30 } })).r1).toContain('⏱ 12h 46m ⏳ cold 100%')
   })
 }

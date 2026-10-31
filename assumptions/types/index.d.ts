@@ -13,6 +13,25 @@ export type Assumption = {
   at?: number
   /** Epoch ms of the last Skip: skipped ones go to the back of the queue. */
   skippedAt?: number
+  /** The session's tool-call count when it was logged: later calls were built on it. Absent on ones stored before 0.5.0. */
+  stepAt?: number
+  /** The start of the person's prompt it was made under, at most 60 characters. */
+  task?: string
+}
+
+/** One corrected assumption, one JSON object per line in ~/.claude/assumptions/<repo slug>.jsonl. */
+export type PastCorrection = {
+  /** Epoch ms when the correction was recorded. */
+  at: number
+  session: string
+  /** The git top-level folder, forward slashes. */
+  repo: string
+  id: number
+  text: string
+  why?: string
+  /** The start of the person's prompt the assumption was made under. */
+  task?: string
+  correction: string
 }
 
 declare module 'claude-code' {
@@ -26,6 +45,8 @@ declare module 'claude-code' {
       nextId: number
       /** Whether the panel lists the reviewed assumptions too. */
       showReviewed: boolean
+      /** Tool calls this session, the assumption tool's own excluded. */
+      steps: number
     }
   }
 }
