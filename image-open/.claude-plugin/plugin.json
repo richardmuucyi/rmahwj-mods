@@ -1,6 +1,6 @@
 {
   "name": "image-open",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Paste an image and a tile appears above the prompt for each [Image #N]: a picture of Claude Code's own copy of the paste, and an [open] button that shows it full size in your default viewer. Real pixels in Ghostty or kitty; coloured half-blocks in Windows Terminal, Terminal.app and iTerm2. Windows and macOS.",
   "author": { "name": "Richard" },
   "types": "./types/index.d.ts",
