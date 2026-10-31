@@ -18,8 +18,8 @@ Claude never starts this skill by itself. You call it by name, after installing:
 ## Install
 
 ```
-/plugin marketplace add richardmuucyi/rmahwj-mods
-/plugin install html-artefact@rmahwj-mods
+/plugin marketplace add richardmuucyi/rmahwj
+/plugin install html-artefact@rmahwj
 /reload-plugins
 ```
 

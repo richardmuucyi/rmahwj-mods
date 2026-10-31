@@ -40,8 +40,8 @@ The card checks this after the work:
 ## Install
 
 ```
-/plugin marketplace add richardmuucyi/rmahwj-mods
-/plugin install prompt-enhancer@rmahwj-mods
+/plugin marketplace add richardmuucyi/rmahwj
+/plugin install prompt-enhancer@rmahwj
 /reload-plugins
 ```
 

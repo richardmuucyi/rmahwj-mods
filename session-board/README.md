@@ -37,8 +37,8 @@ Set them in `/config`, or with `claude plugin configure session-board`. The mode
 ## Install
 
 ```
-/plugin marketplace add richardmuucyi/rmahwj-mods
-/plugin install session-board@rmahwj-mods
+/plugin marketplace add richardmuucyi/rmahwj
+/plugin install session-board@rmahwj
 /reload-plugins
 ```
 

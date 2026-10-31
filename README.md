@@ -1,4 +1,4 @@
-# rmahwj-mods
+# rmahwj
 
 Six small [Claude Code](https://claude.com/claude-code) mods, five by Richard Mah and one by Thariq Shihipar, plus four plugins of skills and one theme pack. A mod changes how Claude Code looks or behaves: a strip above the prompt, a panel, a slash command, a hook on your prompts. A skill is a set of steps and scripts Claude follows when your request fits it.
 
@@ -27,8 +27,8 @@ Six small [Claude Code](https://claude.com/claude-code) mods, five by Richard Ma
 Add the marketplace, then install the mods you want:
 
 ```
-/plugin marketplace add richardmuucyi/rmahwj-mods
-/plugin install assumptions@rmahwj-mods
+/plugin marketplace add richardmuucyi/rmahwj
+/plugin install assumptions@rmahwj
 /reload-plugins
 ```
 
@@ -37,7 +37,7 @@ Replace `assumptions` with any name in the table. Add the marketplace as `owner/
 To get new versions later:
 
 ```
-/plugin marketplace update rmahwj-mods
+/plugin marketplace update rmahwj
 ```
 
 Auto-update is off by default for marketplaces you did not create. Each mod has a `version` in its `plugin.json`, and an update reaches you only when that number goes up.

@@ -6,4 +6,4 @@ How it works: the mod saves the clipboard picture as a PNG in your temp folder (
 
 Windows only: the save step uses PowerShell.
 
-Install: `/plugin install image-open@rmahwj-mods`, then `/reload-plugins`.
+Install: `/plugin install image-open@rmahwj`, then `/reload-plugins`.

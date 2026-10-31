@@ -126,8 +126,8 @@ Each has a regular variant (fixed colours, base `dark`/`light`) and an **ANSI** 
 ## Install
 
 ```
-/plugin marketplace add richardmuucyi/rmahwj-mods
-/plugin install all-themes@rmahwj-mods
+/plugin marketplace add richardmuucyi/rmahwj
+/plugin install all-themes@rmahwj
 /reload-plugins
 /theme
 ```

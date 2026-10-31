@@ -31,8 +31,8 @@ The skill hands off to three tools that this plugin does not include. It works w
 ## Install
 
 ```
-/plugin marketplace add richardmuucyi/rmahwj-mods
-/plugin install tutor@rmahwj-mods
+/plugin marketplace add richardmuucyi/rmahwj
+/plugin install tutor@rmahwj
 /reload-plugins
 ```
 

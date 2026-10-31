@@ -71,8 +71,8 @@ python scripts/ripe_learnings.py --root path/to/project --json
 ## Install
 
 ```
-/plugin marketplace add richardmuucyi/rmahwj-mods
-/plugin install skill-authoring@rmahwj-mods
+/plugin marketplace add richardmuucyi/rmahwj
+/plugin install skill-authoring@rmahwj
 /reload-plugins
 ```
 

@@ -13,8 +13,8 @@ It reads usage figures only and adds no tokens.
 ## Install
 
 ```
-/plugin marketplace add richardmuucyi/rmahwj-mods
-/plugin install usage-gauge@rmahwj-mods
+/plugin marketplace add richardmuucyi/rmahwj
+/plugin install usage-gauge@rmahwj
 /reload-plugins
 ```
 

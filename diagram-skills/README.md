@@ -14,8 +14,8 @@ Four skills for pictures made from structure. Unlike the other plugins here, thi
 ## Install
 
 ```
-/plugin marketplace add richardmuucyi/rmahwj-mods
-/plugin install diagram-skills@rmahwj-mods
+/plugin marketplace add richardmuucyi/rmahwj
+/plugin install diagram-skills@rmahwj
 /reload-plugins
 ```
 

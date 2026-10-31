@@ -12,8 +12,8 @@ Claude logs each assumption it makes while it works. You review them, mark them 
 ## Install
 
 ```
-/plugin marketplace add richardmuucyi/rmahwj-mods
-/plugin install assumptions@rmahwj-mods
+/plugin marketplace add richardmuucyi/rmahwj
+/plugin install assumptions@rmahwj
 /reload-plugins
 ```
 
